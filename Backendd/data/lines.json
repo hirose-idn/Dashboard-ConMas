@@ -1,0 +1,371 @@
+[
+  {
+    "line_code": "41HR01",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR101",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR114",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR114C",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR116C",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR117",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR12",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR121",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR124",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR125D",
+    "description": null,
+    "shift_scheme": 3,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR129",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR130",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR134",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR135",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR145",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR18",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR21",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR22",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR34",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR35",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR38",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR39",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR50",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR52",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR58",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR59",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR70",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR73",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR74",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR78",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR93",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR94",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HRTest",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-09T00:11:25.217Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR114D",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR122",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR125",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR127",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR138",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR9",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR95",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-17T01:11:51.023Z",
+    "auto_discovered": true
+  }
+]

@@ -1,0 +1,69 @@
+From 6ed01602b76f4bce00e9444c4bc9a9cfef54b869 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Fri, 17 Jul 2026 01:03:01 +0000
+Subject: [PATCH] fix: teks bebayang/overlap di tabel Breakdown per Line
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Root cause: kolom sticky (Line, Product Name, Cum Output dkk) punya
+width fix tapi gak ada overflow:hidden — konten yang lebih panjang dari
+width (nama produk panjang, angka besar) meluber keluar kotak dan numpuk
+di atas kolom sebelah (sticky + background solid), keliatan kayak 2
+teks bertabrakan.
+
+Fix:
+- tdStyle()/thStyle(): tambah overflow:hidden + textOverflow:ellipsis
+- <table>: tambah tableLayout:fixed biar width di tiap <td> BENERAN
+  dipatuhi browser, bukan cuma saran
+---
+ .../components/dashboard/BreakdownTempat.jsx  | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/Frontendd/src/components/dashboard/BreakdownTempat.jsx b/Frontendd/src/components/dashboard/BreakdownTempat.jsx
+index 3a87af1..f51f866 100644
+--- a/Frontendd/src/components/dashboard/BreakdownTempat.jsx
++++ b/Frontendd/src/components/dashboard/BreakdownTempat.jsx
+@@ -40,6 +40,15 @@ const thStyle = () => ({
+   textTransform: "uppercase",
+   letterSpacing: "0.05em",
+   whiteSpace: "nowrap",
++  // ⚠️ FIX "bebayang" di kolom sticky (Line/Product Name/Cum Output dkk):
++  // tanpa overflow:hidden, teks yang lebih panjang dari `width` kolom
++  // (nama produk panjang, angka besar kayak 4,318,702) meluber keluar
++  // kotaknya dan numpuk di atas kolom sebelah — soalnya sel-selnya
++  // position:sticky dengan background solid, jadi kelihatan kayak 2
++  // teks bertabrakan/ghosting. overflow:hidden + ellipsis bikin teks
++  // yang kepanjangan dipotong rapi, bukan meluber ke kolom lain.
++  overflow: "hidden",
++  textOverflow: "ellipsis",
+ });
+ 
+ const tdStyle = () => ({
+@@ -48,6 +57,9 @@ const tdStyle = () => ({
+   color: C.textDim,
+   verticalAlign: "middle",
+   whiteSpace: "nowrap",
++  // Sama kayak thStyle() di atas — cegah overflow numpuk ke kolom sebelah.
++  overflow: "hidden",
++  textOverflow: "ellipsis",
+ });
+ 
+ // ── Sticky (pinned) columns on the left — width & left offset computed
+@@ -662,6 +674,13 @@ export default function BreakdownTempat({ tempat, onSelect, onBack }) {
+                 <table
+                   style={{
+                     borderCollapse: "collapse",
++                    // ⚠️ WAJIB buat fix bug "bebayang": tanpa tableLayout
++                    // "fixed", `width` di tiap <td> cuma "saran" — browser
++                    // masih bisa ngelebarin kolom sendiri kalau isinya
++                    // panjang, bikin overflow:hidden di atas gak kepakai.
++                    // "fixed" bikin lebar kolom BENERAN dipatuhi sesuai
++                    // yang didefinisikan di STICKY_COLS.
++                    tableLayout: "fixed",
+                     width: `${STICKY_TOTAL_WIDTH + dates.length * 100}px`,
+                   }}
+                 >
+-- 
+2.43.0
+
