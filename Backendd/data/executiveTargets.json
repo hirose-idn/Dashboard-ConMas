@@ -1,0 +1,26 @@
+[
+  {
+    "year": 2026,
+    "month": 7,
+    "tempat": "sgp",
+    "target": 0,
+    "actual": 0,
+    "updatedAt": "2026-07-24T06:27:55.183Z"
+  },
+  {
+    "year": 2026,
+    "month": 7,
+    "tempat": "internal",
+    "target": 2207780,
+    "actual": 0,
+    "updatedAt": "2026-07-24T09:24:00.304Z"
+  },
+  {
+    "year": 2026,
+    "month": 7,
+    "tempat": "systech",
+    "target": 0,
+    "actual": 0,
+    "updatedAt": "2026-07-24T06:28:23.605Z"
+  }
+]

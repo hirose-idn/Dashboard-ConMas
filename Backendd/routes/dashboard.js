@@ -1075,6 +1075,7 @@ router.get("/summary-all-daily", async (req, res) => {
           dateParam,
         ]);
         const row = result.rows[0] || null;
+        const hasDataToday = Number(row?.records) > 0;
 
         const output_plan = Number(row?.output_plan) || 0;
         const output_actual = Number(row?.output_actual) || 0;
@@ -1086,8 +1087,16 @@ router.get("/summary-all-daily", async (req, res) => {
           description: line.description,
           tempat: line.tempat || "Internal",
           date: dateParam,
-          line_not_running: dateParam === todayStr ? lineNotRunning : false,
-          has_data: Number(row?.records) > 0,
+          // ⚠️ FIX bug "Tidak Running padahal jalan": SEBELUMNYA baris ini
+          // cuma ngecek elapsed time (`lineNotRunning`) tanpa peduli
+          // apakah datanya beneran ada — begitu udah >120 menit dari mulai
+          // shift, SEMUA line ke-flag "Tidak Running" gak peduli output-nya
+          // jalan atau nggak. Konsisten sama services/summaryService.js
+          // (`row ? false : lineNotRunning`): flag cuma nyala kalau emang
+          // BENERAN gak ada data buat hari ini, bukan semata waktu.
+          line_not_running:
+            dateParam === todayStr && !hasDataToday ? lineNotRunning : false,
+          has_data: hasDataToday,
           output_plan,
           output_actual,
           qty_reject: Number(row?.qty_reject) || 0,

@@ -38,7 +38,7 @@ function gapColor(gap) {
   return gap >= 0 ? C.green : C.red;
 }
 
-const fmt = (n, dec = 2) =>
+const fmt = (n, dec = 0) =>
   n == null ? "—" : Number(n).toLocaleString("id-ID", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
 // ─── KPI card besar di baris atas — value-nya berwarna SESUAI KONDISI,
@@ -69,28 +69,84 @@ function KpiCard({ label, value, unit, color, caption }) {
   );
 }
 
+// ─── Grid kalender 7-kolom (Min–Sab) buat 1 bulan — klik 1 tanggal buat
+// toggle libur/kerja. Weekend gak di-hardcode di komponen ini (murni
+// render dari liburDates yang dikasih), default-nya (weekend kecentang)
+// udah diatur backend pas belum pernah disave. ──
+function MiniCalendarGrid({ year, month, liburDates, onToggle }) {
+  const totalDays = new Date(year, month, 0).getDate();
+  const firstDow = new Date(Date.UTC(year, month - 1, 1)).getUTCDay(); // 0 = Minggu
+  const liburSet = new Set(liburDates);
+  const pad = (n) => String(n).padStart(2, "0");
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= totalDays; d++) cells.push(d);
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+        {["M", "S", "S", "R", "K", "J", "S"].map((l, i) => (
+          <div key={i} style={{ textAlign: "center", fontSize: 9, color: C.textDim }}>{l}</div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        {cells.map((d, i) => {
+          if (d === null) return <div key={`b${i}`} />;
+          const dateStr = `${year}-${pad(month)}-${pad(d)}`;
+          const isLibur = liburSet.has(dateStr);
+          return (
+            <button
+              key={dateStr}
+              type="button"
+              onClick={() => onToggle(dateStr)}
+              title={isLibur ? "Libur — klik buat jadiin hari kerja" : "Hari kerja — klik buat jadiin libur"}
+              style={{
+                aspectRatio: "1", border: "none", borderRadius: 5, cursor: "pointer",
+                fontSize: 11, fontWeight: 600, padding: 0,
+                background: isLibur ? "rgba(239,68,68,0.28)" : C.panelAlt,
+                color: isLibur ? "#f87171" : C.text,
+              }}
+            >
+              {d}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── 1 baris lokasi di Achievement Ranking — progress bar + mini stat +
 // tombol edit inline (input manual, karena belum ada sumber data otomatis)
-function RankingRow({ tempat, data, onSave }) {
+function RankingRow({ tempat, year, month, data, onSave }) {
   const [editing, setEditing] = useState(false);
   const [targetInput, setTargetInput] = useState(data.target);
-  const [actualInput, setActualInput] = useState(data.actual);
+  const [liburDates, setLiburDates] = useState(data.liburDates || []);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!editing) {
       setTargetInput(data.target);
-      setActualInput(data.actual);
+      setLiburDates(data.liburDates || []);
     }
-  }, [data.target, data.actual, editing]);
+  }, [data.target, data.liburDates, editing]);
 
   const pct = Math.min(data.achievementPct, 100); // bar gak lewat 100% biar gak "meledak" visual, angka teks tetap apa adanya
+  const pctHariIni = Math.min(data.achievementHariIniPct, 100);
   const color = achievementColor(data.achievementPct);
+  const colorHariIni = achievementColor(data.achievementHariIniPct);
+
+  const toggleDate = (dateStr) => {
+    setLiburDates((prev) =>
+      prev.includes(dateStr) ? prev.filter((d) => d !== dateStr) : [...prev, dateStr].sort(),
+    );
+  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSave(tempat, Number(targetInput) || 0, Number(actualInput) || 0);
+      await onSave(tempat, Number(targetInput) || 0, liburDates);
       setEditing(false);
     } finally {
       setSaving(false);
@@ -99,7 +155,7 @@ function RankingRow({ tempat, data, onSave }) {
 
   return (
     <div style={{ padding: "18px 0", borderBottom: `1px solid ${C.border}` }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span
             style={{
@@ -108,78 +164,92 @@ function RankingRow({ tempat, data, onSave }) {
             }}
           />
           <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{SOURCE_LABEL[tempat]}</span>
+          <span style={{ fontSize: 11, color: C.textDim }}>· {data.workingDays || 0} hari kerja/bulan</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <span style={{ fontSize: 22, fontWeight: 800, color }}>{fmt(data.achievementPct, 1)}%</span>
-          <button
-            onClick={() => setEditing((v) => !v)}
-            title="Edit target & actual"
-            style={{
-              background: "transparent", border: `1px solid ${C.border}`, color: C.textDim,
-              borderRadius: 6, padding: "4px 9px", fontSize: 11, cursor: "pointer",
-            }}
-          >
-            {editing ? "Batal" : "✎ Edit"}
-          </button>
-        </div>
+        <button
+          onClick={() => setEditing((v) => !v)}
+          title="Edit target & total hari kerja"
+          style={{
+            background: "transparent", border: `1px solid ${C.border}`, color: C.textDim,
+            borderRadius: 6, padding: "4px 9px", fontSize: 11, cursor: "pointer",
+          }}
+        >
+          {editing ? "Batal" : "✎ Edit"}
+        </button>
       </div>
 
-      {/* progress bar — track NETRAL (bukan merah), fill warna sesuai pencapaian */}
+      {/* Bar 1 — Actual vs Target Bulanan (utuh 1 bulan) */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: C.textDim }}>Actual / Target Bulanan</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color }}>{fmt(data.achievementPct, 1)}%</span>
+      </div>
       <div style={{ height: 8, borderRadius: 4, background: C.panelAlt, overflow: "hidden", marginBottom: 12 }}>
         <div style={{ height: "100%", width: `${pct}%`, background: color, transition: "width .3s" }} />
       </div>
 
+      {/* Bar 2 — Actual vs Target Hari Ini (kumulatif s.d. tanggal berjalan) */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: C.textDim }}>Actual / Target Hari Ini (kumulatif)</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: colorHariIni }}>{fmt(data.achievementHariIniPct, 1)}%</span>
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: C.panelAlt, overflow: "hidden", marginBottom: 12 }}>
+        <div style={{ height: "100%", width: `${pctHariIni}%`, background: colorHariIni, transition: "width .3s" }} />
+      </div>
+
       {editing ? (
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <label style={{ fontSize: 11, color: C.textDim }}>
-            Target
-            <input
-              type="number"
-              value={targetInput}
-              onChange={(e) => setTargetInput(e.target.value)}
+        // ⚠️ Actual OTOMATIS sync dari data produksi asli (sama sumber kayak
+        // Master Hub), gak ada input manual buat Actual di sini. Yang bisa
+        // diedit cuma Target Bulanan + kalender kerja (klik tanggal libur).
+        <div>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 }}>
+            <label style={{ fontSize: 11, color: C.textDim }}>
+              Target Bulanan
+              <input
+                type="number"
+                value={targetInput}
+                onChange={(e) => setTargetInput(e.target.value)}
+                style={{
+                  display: "block", marginTop: 4, width: 130, background: C.inputBg,
+                  border: `1px solid ${C.border}`, borderRadius: 6, color: C.text,
+                  padding: "6px 8px", fontSize: 13,
+                }}
+              />
+            </label>
+            <button
+              onClick={handleSave}
+              disabled={saving}
               style={{
-                display: "block", marginTop: 4, width: 110, background: C.inputBg,
-                border: `1px solid ${C.border}`, borderRadius: 6, color: C.text,
-                padding: "6px 8px", fontSize: 13,
+                background: C.blue, border: "none", color: "#fff", borderRadius: 6,
+                padding: "7px 16px", fontSize: 12, fontWeight: 700,
+                cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1,
               }}
-            />
-          </label>
-          <label style={{ fontSize: 11, color: C.textDim }}>
-            Actual
-            <input
-              type="number"
-              value={actualInput}
-              onChange={(e) => setActualInput(e.target.value)}
-              style={{
-                display: "block", marginTop: 4, width: 110, background: C.inputBg,
-                border: `1px solid ${C.border}`, borderRadius: 6, color: C.text,
-                padding: "6px 8px", fontSize: 13,
-              }}
-            />
-          </label>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              background: C.blue, border: "none", color: "#fff", borderRadius: 6,
-              padding: "7px 16px", fontSize: 12, fontWeight: 700,
-              cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1,
-            }}
-          >
-            {saving ? "Menyimpan…" : "Simpan"}
-          </button>
+            >
+              {saving ? "Menyimpan…" : "Simpan"}
+            </button>
+          </div>
+
+          <div style={{ maxWidth: 260 }}>
+            <p style={{ fontSize: 11, color: C.textDim, marginBottom: 6 }}>
+              Kalender Kerja — klik tanggal buat toggle libur.{" "}
+              <b style={{ color: C.text }}>
+                {new Date(year, month, 0).getDate() - liburDates.length} hari kerja
+              </b>
+            </p>
+            <MiniCalendarGrid year={year} month={month} liburDates={liburDates} onToggle={toggleDate} />
+          </div>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {[
             ["Actual", fmt(data.actual), C.green],
-            ["Target", fmt(data.target), C.orange],
+            ["Target Bulanan", fmt(data.target), C.orange],
+            ["Target Hari Ini", fmt(data.targetHariIni), C.blue],
             ["Gap", fmt(data.gap), gapColor(data.gap)],
           ].map(([label, val, col]) => (
             <div
               key={label}
               style={{
-                flex: 1, background: C.panelAlt, borderRadius: 8, padding: "8px 12px",
+                flex: "1 1 120px", background: C.panelAlt, borderRadius: 8, padding: "8px 12px",
               }}
             >
               <p style={{ fontSize: 10, color: C.textDim, letterSpacing: 0.5 }}>{label.toUpperCase()}</p>
@@ -191,6 +261,7 @@ function RankingRow({ tempat, data, onSave }) {
     </div>
   );
 }
+
 
 export default function ExecutiveDashboard({ onOpenHub }) {
   const [themeMode, toggleTheme] = useThemeMode();
@@ -230,12 +301,42 @@ export default function ExecutiveDashboard({ onOpenHub }) {
   useEffect(() => { fetchMonth(); }, [fetchMonth]);
   useEffect(() => { fetchTrend(); }, [fetchTrend]);
 
-  const handleSaveTarget = async (tempat, target, actual) => {
-    await fetch(`${BASE_URL}/api/executive/target`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ year, month, tempat, target, actual }),
-    });
+  // Simpan Target Bulanan + Total Hari Kerja bareng (1 tombol Simpan di
+  // RankingRow) — 2 request kepisah karena beda registry di backend
+  // (Target vs Kalender Kerja), tapi buat planner keliatannya 1 aksi.
+  //
+  // ⚠️ WAJIB cek res.ok di sini — fetch() gak nge-throw cuma karena status
+  // 404/500, jadi kalau gak dicek, backend yang belum di-redeploy (endpoint
+  // /calendar belum ada) bakal keliatan "berhasil" padahal enggak kesimpen
+  // sama sekali.
+  const handleSaveTarget = async (tempat, target, liburDates) => {
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch(`${BASE_URL}/api/executive/target`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ year, month, tempat, target }),
+        }),
+        fetch(`${BASE_URL}/api/executive/calendar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ year, month, tempat, liburDates }),
+        }),
+      ]);
+      if (!r1.ok || !r2.ok) {
+        const [j1, j2] = await Promise.all([
+          r1.json().catch(() => ({})),
+          r2.json().catch(() => ({})),
+        ]);
+        throw new Error(
+          j1.message || j2.message ||
+          `Gagal simpan — target: HTTP ${r1.status}, kalender: HTTP ${r2.status}`,
+        );
+      }
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    }
     await fetchMonth();
     await fetchTrend();
   };
@@ -370,7 +471,7 @@ export default function ExecutiveDashboard({ onOpenHub }) {
             </div>
             {monthData &&
               TEMPAT_ORDER.map((t) => (
-                <RankingRow key={t} tempat={t} data={monthData.byTempat[t]} onSave={handleSaveTarget} />
+                <RankingRow key={t} tempat={t} year={year} month={month} data={monthData.byTempat[t]} onSave={handleSaveTarget} />
               ))}
           </div>
 

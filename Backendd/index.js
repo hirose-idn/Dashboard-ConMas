@@ -8,6 +8,7 @@ const linesRoutes = require("./routes/lines");
 const apiExternalRoutes = require("./routes/api-external");
 const masterRoutes = require("./routes/master");
 const syncRoutes = require("./routes/sync");
+const executiveRoutes = require("./routes/executive");
 const pushSyncService = require("./services/pushSyncService");
 
 const app = express();
@@ -54,6 +55,11 @@ app.use("/api/master", masterRoutes);
 // endpoint ini tetap ke-mount tapi gak akan pernah dipanggil siapa-siapa,
 // jadi aman dibiarkan (satu codebase generic, lihat REFACTOR_NOTES.md).
 app.use("/api/sync", syncRoutes);
+// Executive Dashboard — data manual planner, disimpan di file
+// (data/executiveTargets.json), TERPISAH dari DB ConMas. Ketemu file
+// route-nya udah ada di server tapi belum pernah ke-mount/ke-commit
+// (lihat REFACTOR_NOTES.md: "Server Master belum jadi git clone").
+app.use("/api/executive", executiveRoutes);
 
 // Push-sync PENGIRIM — cuma nyala di instance SGP/Systech kalau
 // PUSH_MASTER_URL & PUSH_SYNC_KEY diisi (lihat services/pushSyncService.js).

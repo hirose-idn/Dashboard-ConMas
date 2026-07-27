@@ -288,15 +288,6 @@
     "auto_discovered": true
   },
   {
-    "line_code": "41HRTest",
-    "description": null,
-    "shift_scheme": 2,
-    "tempat": "Internal",
-    "active": true,
-    "created_at": "2026-07-09T00:11:25.217Z",
-    "auto_discovered": true
-  },
-  {
     "line_code": "41HR",
     "description": null,
     "shift_scheme": 2,
@@ -352,15 +343,6 @@
   },
   {
     "line_code": "41HR9",
-    "description": null,
-    "shift_scheme": 2,
-    "tempat": "Internal",
-    "active": true,
-    "created_at": "2026-07-17T01:11:51.023Z",
-    "auto_discovered": true
-  },
-  {
-    "line_code": "41HR95",
     "description": null,
     "shift_scheme": 2,
     "tempat": "Internal",
