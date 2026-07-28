@@ -1087,15 +1087,23 @@ router.get("/summary-all-daily", async (req, res) => {
           description: line.description,
           tempat: line.tempat || "Internal",
           date: dateParam,
-          // ⚠️ FIX bug "Tidak Running padahal jalan": SEBELUMNYA baris ini
-          // cuma ngecek elapsed time (`lineNotRunning`) tanpa peduli
-          // apakah datanya beneran ada — begitu udah >120 menit dari mulai
-          // shift, SEMUA line ke-flag "Tidak Running" gak peduli output-nya
-          // jalan atau nggak. Konsisten sama services/summaryService.js
-          // (`row ? false : lineNotRunning`): flag cuma nyala kalau emang
-          // BENERAN gak ada data buat hari ini, bukan semata waktu.
+          // ⚠️ FIX bug "Tidak Running padahal jalan" (elapsed-time false
+          // positive): flag cuma nyala kalau emang BENERAN gak ada data,
+          // bukan semata waktu — lihat services/summaryService.js.
+          //
+          // ⚠️ FIX bug KEDUA "semua line jadi Running pas backdate": versi
+          // sebelumnya nge-hardcode `false` buat SEMUA tanggal selain hari
+          // ini, jadi backdate ke tanggal yang emang 0 data pun tetap
+          // ke-flag Running. Bedanya cuma DASAR pengecekannya:
+          //   - Hari ini   → pakai `lineNotRunning` (elapsed time sejak
+          //                  mulai shift), karena datanya BISA SAJA belum
+          //                  masuk cuma karena belum lewat window toleransi.
+          //   - Tanggal lain (lampau) → hari itu udah lewat sepenuhnya,
+          //                  jadi elapsed-time gak relevan lagi. Cukup cek
+          //                  hasDataToday: kalau 0 record buat SELURUH hari
+          //                  itu, ya emang Tidak Running, titik.
           line_not_running:
-            dateParam === todayStr && !hasDataToday ? lineNotRunning : false,
+            !hasDataToday && (dateParam === todayStr ? lineNotRunning : true),
           has_data: hasDataToday,
           output_plan,
           output_actual,

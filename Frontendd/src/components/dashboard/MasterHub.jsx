@@ -307,9 +307,33 @@ function RowMenu({ menu, onChoose, onClose }) {
   );
 }
 
-export default function MasterHub({ onOpenTempat, onGoToPicker }) {
+export default function MasterHub({ onOpenTempat, onGoToPicker, onOpenExecutive }) {
   const [themeMode, toggleTheme] = useThemeMode();
   const [rowMenu, setRowMenu] = useState(null); // { source, label, x, y }
+  const [syncing, setSyncing] = useState(false);
+
+  // Tombol "Sync Line" — panggil POST /api/lines/sync, yang nyari line
+  // baru di DB (belum terdaftar di data/lines.json) terus langsung
+  // nambahin ke registry. Endpoint-nya udah ada (routes/lines.js), ini
+  // cuma nyambungin ke tombol di UI.
+  const handleSyncLines = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/lines/sync?days=90`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (json.success) {
+        window.alert(json.message || "Sync selesai.");
+      } else {
+        window.alert(`Sync gagal: ${json.message || "unknown error"}`);
+      }
+    } catch (err) {
+      window.alert(`Sync gagal: ${err.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
 
   const handleRowClick = useCallback((s, e) => {
     e.stopPropagation();
@@ -486,29 +510,67 @@ export default function MasterHub({ onOpenTempat, onGoToPicker }) {
             detail
           </p>
         </div>
-        <button
-          onClick={toggleTheme}
-          title={
-            themeMode === "light"
-              ? "Switch to dark theme"
-              : "Switch to light theme"
-          }
-          style={{
-            background: "transparent",
-            border: `1px solid ${C.border}`,
-            color: C.textDim,
-            borderRadius: 7,
-            padding: "6px 12px",
-            fontSize: 12,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            flexShrink: 0,
-          }}
-        >
-          {themeMode === "light" ? "☀️ Light" : "🌙 Dark"}
-        </button>
+        <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
+          {onOpenExecutive && (
+            <button
+              onClick={onOpenExecutive}
+              style={{
+                background: C.blue,
+                border: "none",
+                color: "#fff",
+                borderRadius: 7,
+                padding: "8px 16px",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Buka Executive Dashboard →
+            </button>
+          )}
+          <button
+            onClick={handleSyncLines}
+            disabled={syncing}
+            title="Cari & daftarkan line baru dari database"
+            style={{
+              background: "transparent",
+              border: `1px solid ${C.border}`,
+              color: C.textDim,
+              borderRadius: 7,
+              padding: "6px 12px",
+              fontSize: 12,
+              cursor: syncing ? "default" : "pointer",
+              opacity: syncing ? 0.6 : 1,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            {syncing ? "⏳ Syncing..." : "🔄 Sync Line"}
+          </button>
+          <button
+            onClick={toggleTheme}
+            title={
+              themeMode === "light"
+                ? "Switch to dark theme"
+                : "Switch to light theme"
+            }
+            style={{
+              background: "transparent",
+              border: `1px solid ${C.border}`,
+              color: C.textDim,
+              borderRadius: 7,
+              padding: "6px 12px",
+              fontSize: 12,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            {themeMode === "light" ? "☀️ Light" : "🌙 Dark"}
+          </button>
+        </div>
       </div>
 
       {/* ── KPI gabungan 3 lokasi — akumulasi bulan terpilih ──── */}

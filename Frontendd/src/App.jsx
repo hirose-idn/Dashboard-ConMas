@@ -55,6 +55,20 @@ export default function App() {
     setUrlState({ line: null, view: "hub", tempat: null });
   }, []);
 
+  // Executive Dashboard sebelumnya cuma bisa diakses lewat landing page
+  // (URL kosong) instance Internal — belum ada jalur BALIK ke sana dari
+  // Master Hub. Tombol "Buka Executive Dashboard →" di MasterHub butuh
+  // ini buat pindah tanpa reload penuh (pakai pushState, konsisten sama
+  // navigasi lain di file ini).
+  const goToExecutive = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("line");
+    url.searchParams.delete("tempat");
+    url.searchParams.delete("view");
+    window.history.pushState({}, "", url);
+    setUrlState({ line: null, view: null, tempat: null });
+  }, []);
+
   const goToPicker = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.delete("line");
@@ -116,6 +130,7 @@ export default function App() {
             `"Dashboard Utama" buat "${tempatKey}" belum tersedia dari Hub — pakai "Breakdown per Line" dulu ya.`,
           );
         }}
+        onOpenExecutive={IS_INTERNAL_INSTANCE ? goToExecutive : undefined}
       />
     );
   }

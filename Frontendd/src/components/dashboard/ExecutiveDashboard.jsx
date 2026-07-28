@@ -391,22 +391,59 @@ export default function ExecutiveDashboard({ onOpenHub }) {
         {/* ── Sidebar filter Tahun / Bulan ──────────────────── */}
         <div style={{ width: 190, flexShrink: 0 }}>
           <p style={{ fontSize: 11, color: C.textDim, letterSpacing: 0.5, marginBottom: 8 }}>TAHUN</p>
-          <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-            {[year - 1, year].map((y) => (
-              <button
-                key={y}
-                onClick={() => setYear(y)}
-                style={{
-                  flex: 1, padding: "8px 0", borderRadius: 7, fontSize: 13, fontWeight: 700,
-                  border: `1px solid ${C.border}`, cursor: "pointer",
-                  background: y === year ? C.blue : "transparent",
-                  color: y === year ? "#fff" : C.textDim,
-                }}
-              >
-                {y}
-              </button>
-            ))}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 6,
+              marginBottom: year !== now.getFullYear() ? 4 : 20,
+              border: `1px solid ${C.border}`,
+              borderRadius: 7,
+              padding: "4px 6px",
+            }}
+          >
+            {/* ⚠️ FIX "cuma 2 tahun, gak bisa backyear 2x / maju ke tahun
+                jauh": SEBELUMNYA cuma render 2 tombol tetap [tahunSekarang-1,
+                tahunSekarang] — mentok, gak bisa ke 2024 apalagi 2029.
+                Diganti jadi navigator ‹ tahun › (pola sama kayak navigator
+                bulan di Master Dashboard) — prev/next tinggal +/-1 dari
+                `year` (state), jadi bisa diklik berkali-kali ke arah
+                manapun tanpa batas. */}
+            <button
+              onClick={() => setYear((y) => y - 1)}
+              style={{
+                background: "transparent", border: `1px solid ${C.border}`, color: C.textDim,
+                borderRadius: 5, padding: "4px 10px", fontSize: 13, cursor: "pointer",
+              }}
+            >
+              ‹
+            </button>
+            <span style={{ fontSize: 15, fontWeight: 800, color: C.blue, minWidth: 48, textAlign: "center" }}>
+              {year}
+            </span>
+            <button
+              onClick={() => setYear((y) => y + 1)}
+              style={{
+                background: "transparent", border: `1px solid ${C.border}`, color: C.textDim,
+                borderRadius: 5, padding: "4px 10px", fontSize: 13, cursor: "pointer",
+              }}
+            >
+              ›
+            </button>
           </div>
+          {year !== now.getFullYear() && (
+            <button
+              onClick={() => setYear(now.getFullYear())}
+              style={{
+                display: "block", width: "100%", marginBottom: 16,
+                background: "transparent", border: "none", color: C.blue,
+                fontSize: 11, cursor: "pointer", textAlign: "center", padding: 0,
+              }}
+            >
+              {/* ← Kembali ke {now.getFullYear()} */}
+            </button>
+          )}
           <p style={{ fontSize: 11, color: C.textDim, letterSpacing: 0.5, marginBottom: 8 }}>BULAN</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
             {MONTHS.map((m, i) => (
