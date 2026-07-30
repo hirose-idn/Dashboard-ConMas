@@ -21,6 +21,11 @@ const COLS = {
   output_actual: "cluster_1_2914_n",
   deviasi_target: "cluster_1_2915_n",
   qty_reject: "cluster_1_2917_n",
+  // Reject khusus buat formula Operator Availability (Beki) — BUKAN sama
+  // dengan qty_reject di atas. ⚠️ PLACEHOLDER: user bilang ini
+  // cluster_1_107_n, tapi belum diverifikasi ke DB asli — cek dulu
+  // sebelum production, gampang diganti di sini aja (1 baris).
+  reject_m107: "cluster_1_2917_n",
   stoptime_plan: "cluster_1_2918_n", // "jam plan"
   stoptime_actual: "cluster_1_2919_n", // "jam actual"
 

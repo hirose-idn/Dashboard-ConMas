@@ -349,5 +349,50 @@
     "active": true,
     "created_at": "2026-07-17T01:11:51.023Z",
     "auto_discovered": true
+  },
+  {
+    "line_code": "41HR116",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-27T01:33:13.222Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR139",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-27T01:33:13.222Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR95",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-27T01:33:13.222Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR49",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-29T23:47:01.852Z",
+    "auto_discovered": true
+  },
+  {
+    "line_code": "41HR91",
+    "description": null,
+    "shift_scheme": 2,
+    "tempat": "Internal",
+    "active": true,
+    "created_at": "2026-07-29T23:47:01.852Z",
+    "auto_discovered": true
   }
 ]

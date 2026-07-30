@@ -91,6 +91,7 @@ const HOURLY = [
 const {
   resolveShiftAndDate,
   isLineNotRunning,
+  isRowStale,
 } = require("../utils/shiftResolver");
 
 // ─────────────────────────────────────────────────────────────
@@ -147,6 +148,7 @@ router.get("/", async (req, res) => {
         ${COLS.output_actual} AS output_actual,
         ${COLS.deviasi_target} AS deviasi_target,
         ${COLS.qty_reject} AS qty_reject,
+        ${COLS.reject_m107} AS reject_m107,
         ${COLS.stoptime_plan} AS stoptime_plan,
         ${COLS.stoptime_actual} AS stoptime_actual,
         ${COLS.stoptime_man} AS stoptime_man,
@@ -178,6 +180,7 @@ router.get("/", async (req, res) => {
         shift,
         tanggal: targetDate,
         line_not_running: lineNotRunning,
+        availability_operator: null,
       });
     }
 
@@ -224,11 +227,24 @@ router.get("/", async (req, res) => {
         ? Number(row.stoptime_plan) - Number(row.stoptime_actual)
         : 0;
 
+    // Operator Availability (Beki) — formula dari user:
+    // (total output + total reject m107) / total plan output.
+    // ⚠️ reject_m107 masih placeholder (cluster_1_107_n) — lihat catatan
+    // di config/reportColumns.js, gampang diganti di 1 tempat itu aja
+    // begitu user konfirmasi kolom aslinya.
+    const planOutput = Number(row.output_plan) || 0;
+    const actualOutput = Number(row.output_actual) || 0;
+    const rejectM107 = Number(row.reject_m107) || 0;
+    const availabilityOperator =
+      planOutput > 0
+        ? Math.round(((actualOutput + rejectM107) / planOutput) * 1000) / 10
+        : null;
+
     res.json({
       success: true,
       shift,
       tanggal: targetDate,
-      line_not_running: false,
+      line_not_running: isRowStale(hourly, shiftStartWIB, wib),
       line: row.line,
       cell_leader_nama: row.cell_leader,
       pj_teknis_nama: row.teknisi,
@@ -249,6 +265,7 @@ router.get("/", async (req, res) => {
       stoptime_material: Number(row.stoptime_material) || 0,
       stoptime_method: Number(row.stoptime_method) || 0,
       oee: row.oee != null ? Number(row.oee) : null,
+      availability_operator: availabilityOperator,
       hourly,
       timestamp: new Date().toISOString(),
     });

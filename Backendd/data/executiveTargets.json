@@ -3,9 +3,9 @@
     "year": 2026,
     "month": 7,
     "tempat": "sgp",
-    "target": 0,
+    "target": 2311471,
     "actual": 0,
-    "updatedAt": "2026-07-24T06:27:55.183Z"
+    "updatedAt": "2026-07-28T06:28:33.621Z"
   },
   {
     "year": 2026,
@@ -13,14 +13,22 @@
     "tempat": "internal",
     "target": 2207780,
     "actual": 0,
-    "updatedAt": "2026-07-24T09:24:00.304Z"
+    "updatedAt": "2026-07-27T01:51:41.358Z"
   },
   {
     "year": 2026,
     "month": 7,
     "tempat": "systech",
-    "target": 0,
+    "target": 1288748,
     "actual": 0,
-    "updatedAt": "2026-07-24T06:28:23.605Z"
+    "updatedAt": "2026-07-28T06:25:28.111Z"
+  },
+  {
+    "year": 2026,
+    "month": 6,
+    "tempat": "internal",
+    "target": 28535,
+    "actual": 0,
+    "updatedAt": "2026-07-27T08:48:41.150Z"
   }
 ]

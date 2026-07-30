@@ -11,12 +11,34 @@ const TIMEOUT_MS = 5000; // pendek sengaja — subcont lemot lebih baik cepat di
 // path endpoint /api/external/<path> → type yang dipakai di push-sync
 // (routes/sync.js & pushSyncService.js). Dipakai buat cari data fallback
 // yang PERSIS sama jenisnya kalau pull HTTP normal gagal.
+//
+// ⚠️ "/monthly-summary" SENGAJA gak masuk mapping statis ini — dia
+// PUNYA PARAMETER (year, month) yang menentukan jenis datanya, bukan
+// cuma nama path doang. Kalau di-treat sama kayak yang lain (mapping
+// statis "/monthly-summary" -> "monthly-summary"), fallback bakal
+// balikin cache "monthly-summary" TERAKHIR gak peduli bulan APA yang
+// diminta — itu bug yang bikin Jan s.d. Des semua nampilin actual yang
+// SAMA (bahkan bulan yang belum kejadian pun ikutan "ada" datanya).
+// Ditangani manual di getPushTypeForPath() di bawah biar year+month
+// ikut jadi bagian identitas type-nya.
 const PATH_TO_PUSH_TYPE = {
   "/summary": "summary",
   "/monthly-trend": "monthly-trend",
   "/range-trend": "range-trend",
-  "/monthly-summary": "monthly-summary",
 };
+
+function getPushTypeForPath(path) {
+  const [base, query = ""] = path.split("?");
+  if (base === "/monthly-summary") {
+    const params = new URLSearchParams(query);
+    const year = params.get("year");
+    const month = params.get("month");
+    // Gak ada year/month di query -> jangan asal fallback, biar aman.
+    if (!year || !month) return null;
+    return `monthly-summary-${year}-${month}`;
+  }
+  return PATH_TO_PUSH_TYPE[base] || null;
+}
 
 // Umur maksimum data push yang masih boleh dipakai sebagai fallback.
 // Bisa dituning lewat .env kalau interval push-nya diubah dari default 1 menit.
@@ -28,8 +50,8 @@ const PUSH_FALLBACK_MAX_AGE_MS =
 // duluan. Kalau gak ada data push yang cukup fresh, balikin null dan
 // pemanggil tetap pakai hasil error dari pull seperti biasa (perilaku lama).
 async function tryPushFallback(sourceKey, source, path) {
-  const pushType = PATH_TO_PUSH_TYPE[path.split("?")[0]];
-  if (!pushType) return null; // path ini (mis. line-range-breakdown) belum ada di push-sync
+  const pushType = getPushTypeForPath(path);
+  if (!pushType) return null; // path ini belum ada di push-sync, atau /monthly-summary tanpa year/month
 
   const pushed = await getLatestPush(sourceKey, pushType, PUSH_FALLBACK_MAX_AGE_MS);
   if (!pushed) return null;

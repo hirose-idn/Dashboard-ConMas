@@ -88,4 +88,38 @@ async function getLatestPush(source, type, maxAgeMs = 5 * 60 * 1000) {
   }
 }
 
-module.exports = { savePush, logRejected, getLatestPush };
+// Sama kayak getLatestPush, tapi type-nya dicari pakai PREFIX — dipakai
+// buat /api/sync/status nampilin push "monthly-summary-*" (type-nya
+// sekarang per-bulan, jadi gak ada 1 nama pasti buat di-loop kayak type
+// lain, lihat routes/sync.js).
+async function getLatestPushByPrefix(source, typePrefix, maxAgeMs = 5 * 60 * 1000) {
+  if (!configured) return null;
+  try {
+    const res = await pool.query(
+      `SELECT type, payload_timestamp, received_at, data
+       FROM subcont_push_latest
+       WHERE source = $1 AND type LIKE $2
+       ORDER BY received_at DESC
+       LIMIT 1`,
+      [source, `${typePrefix}%`],
+    );
+    if (res.rows.length === 0) return null;
+
+    const row = res.rows[0];
+    const ageMs = Date.now() - new Date(row.received_at).getTime();
+    if (ageMs > maxAgeMs) return null;
+
+    return {
+      type: row.type,
+      data: row.data,
+      payload_timestamp: row.payload_timestamp,
+      received_at: row.received_at,
+      age_ms: ageMs,
+    };
+  } catch (err) {
+    console.error("PUSHSTORE/getLatestPushByPrefix ERROR:", err.message);
+    return null;
+  }
+}
+
+module.exports = { savePush, logRejected, getLatestPush, getLatestPushByPrefix };

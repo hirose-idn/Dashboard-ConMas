@@ -122,8 +122,58 @@ function isLineNotRunning(nowWIB, shiftStartWIB) {
   return elapsedMin > NOT_RUNNING_THRESHOLD_MIN;
 }
 
+// ─────────────────────────────────────────────────────────────
+// isRowStale — deteksi "row ADA tapi udah gak ada input BARU".
+//
+// Kenapa perlu: isLineNotRunning() di atas cuma nangkep kasus row-nya
+// SAMA SEKALI belum ada. Tapi kalau line sempet ngirim data di awal shift
+// terus mesin berhenti total, row buat shift itu tetep "ada" (match query
+// line+shift+tanggal) walau udah gak ada input baru berjam-jam — jadi
+// selama ini kebaca "Running" terus, padahal harusnya "Tidak Running".
+//
+// Caranya: DB nyimpen output_actual PER JAM (kolom hourly, lihat HOURLY di
+// routes/dashboard.js). Jalan dari jam mulai shift s.d. (sekarang minus
+// threshold), kalau SEMUA jam yang "seharusnya udah kelar" itu masih
+// kosong actual-nya sama sekali, berarti gak ada input baru masuk >
+// threshold menit — flag TIDAK RUNNING walau row-nya ada.
+//
+// ⚠️ Batasan yang disengaja: ini heuristik dari data per-jam, BUKAN
+// timestamp "terakhir diupdate" beneran (kolom itu gak ada di DB vendor).
+// Kalau suatu jam emang WAJAR kosong (misal jam istirahat/ganti shift),
+// itu ikut kehitung "kosong" juga — tapi karena yang dicek itu SEMUA jam
+// yang due, bukan cuma 1 jam terakhir, resiko false-positive dari 1 jam
+// istirahat doang kecil (masih ke-cover sama jam lain yang beneran ada
+// data). Dibatasi max 20 iterasi jaga-jaga shift super panjang/edge case.
+function hourToLabel(hour) {
+  if (hour === 0) return "24-1"; // jam 00:xx dilabelin "24-1" di DB, bukan "00-01"
+  const start = String(hour).padStart(2, "0");
+  const end = hour + 1;
+  return `${start}-${end === 24 ? "24" : String(end).padStart(2, "0")}`;
+}
+
+function isRowStale(hourly, shiftStartWIB, nowWIB, thresholdMin = NOT_RUNNING_THRESHOLD_MIN) {
+  const cutoff = new Date(nowWIB.getTime() - thresholdMin * 60_000);
+  let anyDueSlot = false;
+  let anyDueSlotHasData = false;
+
+  for (let i = 0; i < 20; i++) {
+    const slotStart = new Date(shiftStartWIB.getTime() + i * 3_600_000);
+    if (slotStart >= cutoff) break; // jam ini belum "due" — masih wajar kosong
+
+    const label = hourToLabel(slotStart.getUTCHours());
+    const entry = hourly.find((h) => h.slot === label);
+    anyDueSlot = true;
+    if (entry && entry.output_actual != null) anyDueSlotHasData = true;
+  }
+
+  // Belum ada jam yang "due" sama sekali (baru mulai shift) → jangan flag
+  // stale di sini, biarin isLineNotRunning() yang urus kasus itu.
+  return anyDueSlot && !anyDueSlotHasData;
+}
+
 module.exports = {
   resolveShiftAndDate,
   isLineNotRunning,
+  isRowStale,
   NOT_RUNNING_THRESHOLD_MIN,
 };

@@ -126,7 +126,7 @@ export default function useDashboardData(lineCode) {
         shift: d.shift || null,
         line_not_running: Boolean(d.line_not_running),
         availability: {
-          operator: MOCK_DATA.availability.operator, // Bekidoritsu — masih mock
+          operator: d.availability_operator ?? null, // FIX: sebelumnya mock ("Bekidoritsu"), sekarang dari backend (stoptime_man vs stoptime_plan)
           mesin: d.oee ?? null, // OEE dari DB (cluster_1_85_n)
         },
         personnel: {

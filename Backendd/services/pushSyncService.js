@@ -84,7 +84,11 @@ async function collectPayloads() {
   const jobs = [
     { type: "summary", fn: () => getLocalSummary() },
     { type: "monthly-trend", fn: () => getDailyTrend(year, month) },
-    { type: "monthly-summary", fn: () => getLocalMonthlySummary(year, month) },
+    // Type-nya SENGAJA ikut year-month, bukan cuma "monthly-summary"
+    // statis — biar Master (sourceClient.js) cuma pake data ini sebagai
+    // fallback buat BULAN YANG SAMA persis, bukan ke-apply asal ke bulan
+    // lain yang diminta pas pull HTTP normal gagal.
+    { type: `monthly-summary-${year}-${month}`, fn: () => getLocalMonthlySummary(year, month) },
     // "range-trend" sengaja gak dipush rutin — parameternya bebas
     // (start/end custom dari user di Master), gak pas buat cache berkala.
   ];

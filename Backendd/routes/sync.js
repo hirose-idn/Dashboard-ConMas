@@ -15,6 +15,7 @@
 const express = require("express");
 const router = express.Router();
 const rateLimit = require("express-rate-limit");
+const { ipKeyGenerator } = rateLimit;
 
 const { savePush, logRejected } = require("../services/pushStore");
 const { configured: syncDbConfigured } = require("../db-sync");
@@ -24,15 +25,28 @@ const VALID_TYPES = [
   "summary",
   "monthly-trend",
   "range-trend",
-  "monthly-summary",
 ];
+// "monthly-summary" sekarang dikirim per-bulan: "monthly-summary-2026-7",
+// bukan string statis — biar fallback di sourceClient.js gak ke-apply ke
+// bulan yang salah (lihat komentar di sourceClient.js/getPushTypeForPath).
+const MONTHLY_SUMMARY_TYPE_RE = /^monthly-summary-\d{4}-(1[0-2]|[1-9])$/;
+function isValidPushType(type) {
+  return VALID_TYPES.includes(type) || MONTHLY_SUMMARY_TYPE_RE.test(type);
+}
 
 // ── Rate limit — longgar tapi tetap ada jaga-jaga ────────────────
+// keyGenerator pakai `source` (bukan default req.ip): endpoint ini
+// diakses lewat Cloudflare Tunnel, jadi kalau ke-key dari IP semua
+// caller (SGP, Systech, curl manual, dst) numpuk ke bucket yang sama
+// kalau trust-proxy-nya kebetulan salah konfig lagi suatu saat.
+// req.body udah keparse duluan di index.js (app.use(express.json())
+// dipasang sebelum semua route), jadi aman dipakai di sini.
 const syncLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60, // tiap source push beberapa jenis data tiap ~1 menit, 60/menit cukup longgar
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => String(req.body?.source || ipKeyGenerator(req.ip)),
   message: { status: "error", message: "Terlalu banyak request" },
 });
 
@@ -86,11 +100,11 @@ router.post("/", requireSyncKey, async (req, res) => {
   const timestamp = req.body.timestamp;
   const data = req.body.data;
 
-  if (!VALID_TYPES.includes(type)) {
+  if (!isValidPushType(type)) {
     logRejected(source, type, "type tidak dikenal");
     return res.status(400).json({
       status: "error",
-      message: `type harus salah satu dari: ${VALID_TYPES.join(", ")}`,
+      message: `type harus salah satu dari: ${VALID_TYPES.join(", ")}, atau monthly-summary-YYYY-M`,
     });
   }
   if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) {
@@ -120,7 +134,7 @@ router.get("/status", async (_req, res) => {
   if (!syncDbConfigured) {
     return res.json({ status: "ok", configured: false, sources: [] });
   }
-  const { getLatestPush } = require("../services/pushStore");
+  const { getLatestPush, getLatestPushByPrefix } = require("../services/pushStore");
   const rows = [];
   for (const source of VALID_SOURCES) {
     for (const type of VALID_TYPES) {
@@ -133,6 +147,17 @@ router.get("/status", async (_req, res) => {
           age_ms: Date.now() - new Date(latest.received_at).getTime(),
         });
       }
+    }
+    // monthly-summary type-nya per-bulan ("monthly-summary-2026-7"), jadi
+    // dicari via prefix, bukan di-loop kayak VALID_TYPES di atas.
+    const latestMonthly = await getLatestPushByPrefix(source, "monthly-summary-", Infinity);
+    if (latestMonthly) {
+      rows.push({
+        source,
+        type: latestMonthly.type,
+        received_at: latestMonthly.received_at,
+        age_ms: Date.now() - new Date(latestMonthly.received_at).getTime(),
+      });
     }
   }
   res.json({ status: "ok", configured: true, sources: rows });

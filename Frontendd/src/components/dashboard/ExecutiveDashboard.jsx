@@ -9,7 +9,7 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { C, GLOBAL_STYLE, BASE_URL, useThemeMode } from "../../config/constants";
+import { C, GLOBAL_STYLE, BASE_URL, REFRESH_MS, useThemeMode } from "../../config/constants";
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
@@ -41,6 +41,22 @@ function gapColor(gap) {
 const fmt = (n, dec = 0) =>
   n == null ? "—" : Number(n).toLocaleString("id-ID", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
+// ─── MetricBox — kotak metrik kecil di dalam grouped card (Monthly
+// Performance / Daily Performance), tint background sesuai warna makna,
+// satuan diletakin DI SAMPING angka (bukan di bawah). ───────────────────
+function MetricBox({ label, value, unit, tint }) {
+  return (
+    <div style={{ flex: 1, minWidth: 90, background: `${tint}1f`, borderRadius: 8, padding: "10px 12px" }}>
+      <p style={{ fontSize: 10, color: C.textDim, letterSpacing: 0.5, marginBottom: 6 }}>
+        {label.toUpperCase()}
+      </p>
+      <p style={{ fontSize: 16, fontWeight: 800, color: tint, lineHeight: 1.2 }}>
+        {value}{" "}
+        {unit && <span style={{ fontSize: 11, fontWeight: 600, color: C.textDim }}>{unit}</span>}
+      </p>
+    </div>
+  );
+}
 // ─── KPI card besar di baris atas — value-nya berwarna SESUAI KONDISI,
 // bukan card-nya di-cat rata warna beda-beda tanpa makna. ──────────────
 function KpiCard({ label, value, unit, color, caption }) {
@@ -239,23 +255,44 @@ function RankingRow({ tempat, year, month, data, onSave }) {
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {[
-            ["Actual", fmt(data.actual), C.green],
-            ["Target Bulanan", fmt(data.target), C.orange],
-            ["Target Hari Ini", fmt(data.targetHariIni), C.blue],
-            ["Gap", fmt(data.gap), gapColor(data.gap)],
-          ].map(([label, val, col]) => (
-            <div
-              key={label}
-              style={{
-                flex: "1 1 120px", background: C.panelAlt, borderRadius: 8, padding: "8px 12px",
-              }}
-            >
-              <p style={{ fontSize: 10, color: C.textDim, letterSpacing: 0.5 }}>{label.toUpperCase()}</p>
-              <p style={{ fontSize: 15, fontWeight: 700, color: col }}>{val}</p>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {/* Group 1 — Monthly Performance: Target Bulanan + Gap Keseluruhan */}
+          <div style={{ flex: "1 1 240px", background: C.panelAlt, borderRadius: 10, padding: 14 }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing: 0.5, marginBottom: 10 }}>
+              MONTHLY PERFORMANCE
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <MetricBox label="Target" value={fmt(data.target)} unit="pcs" tint={C.green} />
+              <MetricBox label="Gap" value={fmt(data.gap)} unit="pcs" tint={gapColor(data.gap)} />
             </div>
-          ))}
+          </div>
+
+          {/* Group 2 — Actual Production, di-highlight biar jadi fokus utama */}
+          <div style={{
+            flex: "1 1 180px", background: `${C.blue}14`, border: `1px solid ${C.blue}55`,
+            borderRadius: 10, padding: 14, display: "flex", flexDirection: "column",
+          }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: C.blue, letterSpacing: 0.5, marginBottom: 10 }}>
+              ACTUAL PRODUCTION
+            </p>
+            <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", flex: 1, display: "flex", alignItems: "center" }}>
+              <p style={{ fontSize: 20, fontWeight: 800, color: C.blue, lineHeight: 1.2 }}>
+                {fmt(data.actual)}{" "}
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.textDim }}>pcs</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Group 3 — Daily Performance: Target Hari Ini + Gap Hari Ini */}
+          <div style={{ flex: "1 1 240px", background: C.panelAlt, borderRadius: 10, padding: 14 }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing: 0.5, marginBottom: 10 }}>
+              DAILY PERFORMANCE
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <MetricBox label="Target" value={fmt(data.targetHariIni)} unit="pcs" tint={C.purple} />
+              <MetricBox label="Gap" value={fmt(data.gapHariIni)} unit="pcs" tint={gapColor(data.gapHariIni)} />
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -300,6 +337,18 @@ export default function ExecutiveDashboard({ onOpenHub }) {
 
   useEffect(() => { fetchMonth(); }, [fetchMonth]);
   useEffect(() => { fetchTrend(); }, [fetchTrend]);
+
+  // Auto-refresh KPI cards + Achievement Ranking tiap REFRESH_MS, sama
+  // kayak dashboard lain (MasterDashboard, BreakdownTempat, dst) — biar
+  // Executive gak keliatan "beku" kalau dibiarin kebuka lama di TV/monitor.
+  // Trend (grafik tahunan) SENGAJA gak ikut di-interval ini: fetch-nya
+  // manggil 12 bulan paralel sekaligus (lihat GET /trend), jadi lebih
+  // berat, dan angkanya juga gak signifikan berubah dalam rentang
+  // REFRESH_MS — cukup refetch pas ganti tahun aja.
+  useEffect(() => {
+    const id = setInterval(fetchMonth, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [fetchMonth]);
 
   // Simpan Target Bulanan + Total Hari Kerja bareng (1 tombol Simpan di
   // RankingRow) — 2 request kepisah karena beda registry di backend
@@ -478,7 +527,12 @@ export default function ExecutiveDashboard({ onOpenHub }) {
               color={monthData ? achievementColor(monthData.total.achievementPct) : C.text}
             />
             <KpiCard
-              label="Total Gap"
+              label="Total Gap Hari Ini"
+              value={fmt(monthData?.total?.gapHariIni)}
+              color={monthData ? gapColor(monthData.total.gapHariIni) : C.text}
+            />
+            <KpiCard
+              label="Total Gap Keseluruhan"
               value={fmt(monthData?.total?.gap)}
               color={monthData ? gapColor(monthData.total.gap) : C.text}
             />

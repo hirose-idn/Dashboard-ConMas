@@ -12,6 +12,15 @@ const executiveRoutes = require("./routes/executive");
 const pushSyncService = require("./services/pushSyncService");
 
 const app = express();
+
+// Wajib ada karena Master diakses lewat Cloudflare Tunnel (cloudflared).
+// Tanpa ini, express-rate-limit di routes/sync.js baca req.ip sebagai
+// alamat lokal cloudflared (SAMA buat semua request yang lewat tunnel),
+// jadi semua source (SGP, Systech, dan siapapun yang curl endpoint ini)
+// numpuk ke SATU rate-limit bucket yang sama → budget abis padahal
+// traffic aktualnya kecil. "1" = percaya 1 hop reverse proxy di depan
+// (cloudflared), sesuai skema Quick/Named Tunnel yang dipakai sekarang.
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ──────────────────────────────────────────────
