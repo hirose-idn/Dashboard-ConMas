@@ -14,6 +14,7 @@ const { getAllLines } = require("../utils/linesRegistry");
 const {
   resolveShiftAndDate,
   isLineNotRunning,
+  pickActiveRow,
 } = require("../utils/shiftResolver");
 
 async function getLocalSummary() {
@@ -22,14 +23,20 @@ async function getLocalSummary() {
 
   const perLine = await Promise.all(
     lines.map(async (line) => {
-      const { shift, tanggal, shiftStartWIB } = resolveShiftAndDate(
+      const { shiftStartWIB: fallbackShiftStartWIB } = resolveShiftAndDate(
         wib,
         line.shift_scheme,
       );
-      const lineNotRunning = isLineNotRunning(wib, shiftStartWIB);
+      const lineNotRunning = isLineNotRunning(wib, fallbackShiftStartWIB);
+      const yesterday = new Date(wib.getTime() - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const todayStr = wib.toISOString().slice(0, 10);
 
       const query = `
         SELECT
+          ${COLS.tanggal}           AS tanggal,
+          ${COLS.shift}             AS shift,
           ${COLS.output_plan}       AS output_plan,
           ${COLS.output_actual}     AS output_actual,
           ${COLS.qty_reject}        AS qty_reject,
@@ -38,24 +45,17 @@ async function getLocalSummary() {
           ${COLS.oee}               AS oee
         FROM ${VIEW}
         WHERE ${COLS.line} = $1
-          AND ${COLS.shift} = $2
-          AND DATE(${COLS.tanggal}) = $3
-          -- SEBELUMNYA: DATE(tanggal AT TIME ZONE 'Asia/Jakarta') = $3
-          -- Dibuang: kalau kolom tanggal tipenya timestamp TANPA timezone
-          -- (bukan timestamptz), AT TIME ZONE nge-treat nilainya sebagai jam
-          -- LOKAL Jakarta terus dikonversi ke UTC — geser MUNDUR 7 jam, yang
-          -- buat tanggal jam 00:00 kebaca jadi tanggal SEBELUMNYA. Ini match
-          -- persis sama gejala bug /daily-trend (all-zero hasData:false).
-          -- TAPI: ini asumsi kolom timestamp (naive), berdasarkan seed test
-          -- lokal — BELUM diverifikasi ke tipe kolom asli di DB ConMas
-          -- production. Cek dulu sebelum apply ke dashboard.js:
-          --   SELECT pg_typeof(tanggal_column) FROM view LIMIT 1;
-          -- Kalau hasilnya "timestamp with time zone", JANGAN dibuang —
-          -- itu kasus sebaliknya, AT TIME ZONE-nya justru wajib ada.
-        LIMIT 1
+          AND DATE(${COLS.tanggal}) IN ($2, $3)
+          -- SEBELUMNYA: query nebak dulu label shift aktif (dari
+          -- shift_scheme config) baru exact-match ke kolom shift — kalau
+          -- tebakannya meleset (scheme salah / jam beda per line), row
+          -- gak ketemu SAMA SEKALI walau datanya udah ada. Sekarang ambil
+          -- semua row line ini hari-ini+kemarin, terus pickActiveRow()
+          -- yang nentuin row mana yang aktif dari LABEL ASLI row itu
+          -- sendiri (lihat utils/shiftResolver.js).
       `;
-      const result = await pool.query(query, [line.line_code, shift, tanggal]);
-      const row = result.rows[0] || null;
+      const result = await pool.query(query, [line.line_code, todayStr, yesterday]);
+      const row = pickActiveRow(result.rows, wib, "shift");
 
       const output_plan = Number(row?.output_plan) || 0;
       const output_actual = Number(row?.output_actual) || 0;

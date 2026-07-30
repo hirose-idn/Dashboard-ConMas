@@ -171,9 +171,109 @@ function isRowStale(hourly, shiftStartWIB, nowWIB, thresholdMin = NOT_RUNNING_TH
   return anyDueSlot && !anyDueSlotHasData;
 }
 
+const SHIFT_LABEL_RE = /Shift\s*(\d)\s*\((\d)\s*Shift\)/i;
+
+// Parse literal kolom shift dari DB, misal "Shift 2 (3 Shift)" ->
+// { shiftNum: 2, scheme: 3 }. null kalau formatnya gak dikenali.
+function parseShiftLabel(shiftText) {
+  const m = SHIFT_LABEL_RE.exec(String(shiftText || ""));
+  if (!m) return null;
+  return { shiftNum: Number(m[1]), scheme: Number(m[2]) };
+}
+
+// Kebalikan dari resolveShiftAndDate: dikasih tanggal kalender row (string
+// "YYYY-MM-DD", persis kayak yang tersimpan di kolom tanggal DB) + scheme +
+// shiftNum HASIL BACA LANGSUNG dari row itu sendiri (bukan tebakan config),
+// hitung jam mulai/selesai shift itu. Dipakai buat nentuin row mana yang
+// paling "aktif sekarang" TANPA butuh shift_scheme dari lines.json sama
+// sekali — jadi imun dari salah tebak scheme atau selisih jam antar line.
+function shiftWindowFromLabel(calendarDate, scheme, shiftNum) {
+  const [y, mo, d] = calendarDate.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  let startHour, endHour, endNextDay = false;
+
+  if (scheme === 3) {
+    if (shiftNum === 1) {
+      startHour = SHIFT3_START_HOUR;
+      endHour = SHIFT3_SECOND_START_HOUR;
+    } else if (shiftNum === 2) {
+      startHour = SHIFT3_SECOND_START_HOUR;
+      endHour = SHIFT3_THIRD_START_HOUR;
+    } else {
+      startHour = SHIFT3_THIRD_START_HOUR;
+      endHour = SHIFT3_START_HOUR;
+      endNextDay = true;
+    }
+  } else {
+    if (shiftNum === 2) {
+      startHour = SHIFT2_NIGHT_START_HOUR;
+      endHour = SHIFT2_START_HOUR;
+      endNextDay = true;
+    } else {
+      startHour = SHIFT2_START_HOUR;
+      endHour = dow === 5 ? SHIFT2_END_HOUR_FRIDAY : SHIFT2_END_HOUR_WEEKDAY;
+    }
+  }
+
+  const startWIB = new Date(Date.UTC(y, mo - 1, d, startHour, 0, 0));
+  const endWIB = new Date(Date.UTC(y, mo - 1, d + (endNextDay ? 1 : 0), endHour, 0, 0));
+  return { startWIB, endWIB };
+}
+
+// Dari sekumpulan row kandidat (hasil query line+tanggal TANPA filter shift,
+// biasanya row hari ini + kemarin biar shift yang lewat tengah malam ikut
+// kecover), pilih SATU row yang paling relevan buat "kondisi sekarang":
+//   1. Row yang jam-nya (dihitung dari shift TEXT row itu sendiri) lagi
+//      MENCAKUP waktu sekarang → itu yang dipakai.
+//   2. Kalau gak ada yang pas (gap antar shift), pilih yang paling BARU
+//      selesai.
+//   3. Row yang shift text-nya gak kebaca format-nya (rusak/kosong)
+//      diabaikan dari perbandingan jam, tapi tetap dianggap "ada data".
+// shiftCol: nama key di row yang isinya literal kolom shift DB.
+function pickActiveRow(rows, nowWIB, shiftCol = "shift") {
+  if (!rows || rows.length === 0) return null;
+
+  let current = null;
+  let mostRecentEnded = null;
+
+  for (const row of rows) {
+    const parsed = parseShiftLabel(row[shiftCol]);
+    if (!parsed) continue;
+    const tanggalStr =
+      row.tanggal instanceof Date
+        ? row.tanggal.toISOString().slice(0, 10)
+        : String(row.tanggal).slice(0, 10);
+    const { startWIB, endWIB } = shiftWindowFromLabel(
+      tanggalStr,
+      parsed.scheme,
+      parsed.shiftNum,
+    );
+    if (nowWIB >= startWIB && nowWIB < endWIB) {
+      current = row;
+      break;
+    }
+    if (endWIB <= nowWIB && (!mostRecentEnded || endWIB > mostRecentEnded._end)) {
+      mostRecentEnded = row;
+      mostRecentEnded._end = endWIB;
+    }
+  }
+
+  if (current) return current;
+  if (mostRecentEnded) {
+    delete mostRecentEnded._end;
+    return mostRecentEnded;
+  }
+  // Gak ada row yang shift text-nya kebaca — fallback ke row pertama
+  // apa adanya biar tetap ada data ketimbang kosong total.
+  return rows[0];
+}
+
 module.exports = {
   resolveShiftAndDate,
   isLineNotRunning,
   isRowStale,
   NOT_RUNNING_THRESHOLD_MIN,
+  parseShiftLabel,
+  shiftWindowFromLabel,
+  pickActiveRow,
 };

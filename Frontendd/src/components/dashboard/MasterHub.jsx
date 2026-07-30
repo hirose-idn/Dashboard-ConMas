@@ -91,7 +91,13 @@ function KpiCard({ label, value, unit, color }) {
 }
 
 // ─── Tabel ringkasan per lokasi — dipakai dua kali (bulanan & hari ini) ──
-function RingkasanTable({ title, sources, onRowClick, clickable }) {
+function RingkasanTable({
+  title,
+  sources,
+  onRowClick,
+  clickable,
+  showLineAktif = true,
+}) {
   return (
     <div
       style={{
@@ -121,7 +127,7 @@ function RingkasanTable({ title, sources, onRowClick, clickable }) {
             {[
               "Lokasi",
               "Status Koneksi",
-              "Line Aktif",
+              ...(showLineAktif ? ["Line Aktif"] : []),
               "Output Plan",
               "Output Actual",
               "Bekidoritsu",
@@ -185,11 +191,13 @@ function RingkasanTable({ title, sources, onRowClick, clickable }) {
                 >
                   {meta.label}
                 </td>
-                <td style={{ padding: "10px", color: C.text }}>
-                  {s.data
-                    ? `${s.data.lines_running}/${s.data.lines_total}`
-                    : "—"}
-                </td>
+                {showLineAktif && (
+                  <td style={{ padding: "10px", color: C.text }}>
+                    {s.data
+                      ? `${s.data.lines_running}/${s.data.lines_total}`
+                      : "—"}
+                  </td>
+                )}
                 <td style={{ padding: "10px", color: C.text }}>
                   {s.data ? fmt(s.data.output_plan) : "—"}
                 </td>
@@ -219,7 +227,7 @@ function RingkasanTable({ title, sources, onRowClick, clickable }) {
           {sources.length === 0 && (
             <tr>
               <td
-                colSpan={9}
+                colSpan={showLineAktif ? 9 : 8}
                 style={{ padding: "14px 10px", color: C.textDim, fontSize: 12 }}
               >
                 Belum ada data lokasi.
@@ -686,6 +694,7 @@ export default function MasterHub({ onOpenTempat, onGoToPicker, onOpenExecutive 
         sources={monthlySources}
         onRowClick={handleRowClick}
         clickable
+        showLineAktif={false}
       />
       {!loading && monthlySources.length === 0 && (
         <p

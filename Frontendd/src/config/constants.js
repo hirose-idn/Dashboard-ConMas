@@ -170,6 +170,7 @@ export const MOCK_DATA = {
   },
 
   monthly: {
+    total_output: null,
     total_qty_reject: null,
     ppm: null,
     micro_stop: null,

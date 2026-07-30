@@ -441,7 +441,7 @@ export default function CenterColumn({
           label="Bekidoritsu"
           pct={availability.operator}
           color={C.blue}
-          live={false}
+          live={availability.operator !== null}
         />
         <div style={{ height: 1, background: C.border }} />
         <AvailabilityCard

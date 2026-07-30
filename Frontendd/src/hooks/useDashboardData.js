@@ -156,6 +156,7 @@ export default function useDashboardData(lineCode) {
         loading: false,
         error: null,
         monthly: {
+          total_output: monthlyJson.total_output,
           total_qty_reject: monthlyJson.total_qty_reject,
           ppm: monthlyJson.ppm,
           man: monthlyJson.man ?? 0,

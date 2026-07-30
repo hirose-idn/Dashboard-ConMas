@@ -92,6 +92,9 @@ const {
   resolveShiftAndDate,
   isLineNotRunning,
   isRowStale,
+  parseShiftLabel,
+  shiftWindowFromLabel,
+  pickActiveRow,
 } = require("../utils/shiftResolver");
 
 // ─────────────────────────────────────────────────────────────
@@ -117,12 +120,18 @@ router.get("/", async (req, res) => {
     }
 
     const wib = new Date(Date.now() + 7 * 3600 * 1000);
-    const {
-      shift,
-      tanggal: targetDate,
-      shiftStartWIB,
-    } = resolveShiftAndDate(wib, lineConfig.shift_scheme);
-    const lineNotRunning = isLineNotRunning(wib, shiftStartWIB);
+    // shift_scheme dari config CUMA dipakai buat fallback pas row BENERAN
+    // belum ada sama sekali (nentuin threshold "not running"). Buat NYARI
+    // row-nya sendiri, kita GAK nebak label shift dari config lagi — lihat
+    // catatan panjang di utils/shiftResolver.js kenapa itu bikin row ke-miss
+    // walau datanya udah ada (mismatch scheme/jam antara config vs row asli).
+    const { tanggal: fallbackDate, shiftStartWIB: fallbackShiftStartWIB } =
+      resolveShiftAndDate(wib, lineConfig.shift_scheme);
+    const yesterday = new Date(wib.getTime() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const todayStr = wib.toISOString().slice(0, 10);
+    const lineNotRunning = isLineNotRunning(wib, fallbackShiftStartWIB);
 
     const slotSelects = SLOTS.flatMap((s, i) => [
       `${s.cl_no} AS slot_${i}_cl_no`,
@@ -160,17 +169,34 @@ router.get("/", async (req, res) => {
         ${hourlySelects.join(",\n        ")}
       FROM ${getViewForTempat(lineConfig.tempat)}
       WHERE ${COLS.line} = $1
-        AND ${COLS.shift} = $2
-        AND DATE(${COLS.tanggal}) = $3
-      LIMIT 1
+        AND DATE(${COLS.tanggal}) IN ($2, $3)
     `;
 
     const result = await getPoolForTempat(lineConfig.tempat).query(query, [
       lineCode,
-      shift,
-      targetDate,
+      todayStr,
+      yesterday,
     ]);
-    const row = result.rows[0] || null;
+    const row = pickActiveRow(result.rows, wib, "shift");
+
+    // Shift & tanggal buat ditampilkan diambil dari ROW ASLI kalau ketemu
+    // (bukan tebakan config) — fallback ke hasil tebakan cuma kalau
+    // beneran gak ada row apa pun buat line ini di 2 hari terakhir.
+    const parsedFromRow = row ? parseShiftLabel(row.shift) : null;
+    const shift = row ? row.shift : `Shift ? (${lineConfig.shift_scheme} Shift)`;
+    const targetDate = row
+      ? row.tanggal instanceof Date
+        ? row.tanggal.toISOString().slice(0, 10)
+        : String(row.tanggal).slice(0, 10)
+      : fallbackDate;
+    // shiftStartWIB buat cek stale (isRowStale) dihitung dari LABEL ASLI
+    // row itu sendiri kalau kebaca, biar jam yang dibandingin bener-bener
+    // cocok sama shift row ini — bukan tebakan config yang mungkin beda.
+    const rowShiftStartWIB =
+      row && parsedFromRow
+        ? shiftWindowFromLabel(targetDate, parsedFromRow.scheme, parsedFromRow.shiftNum)
+            .startWIB
+        : fallbackShiftStartWIB;
 
     if (!row) {
       return res.json({
@@ -244,7 +270,7 @@ router.get("/", async (req, res) => {
       success: true,
       shift,
       tanggal: targetDate,
-      line_not_running: isRowStale(hourly, shiftStartWIB, wib),
+      line_not_running: isRowStale(hourly, rowShiftStartWIB, wib),
       line: row.line,
       cell_leader_nama: row.cell_leader,
       pj_teknis_nama: row.teknisi,
@@ -388,14 +414,18 @@ router.get("/summary-all", async (req, res) => {
 
     const summaries = await Promise.all(
       lines.map(async (line) => {
-        const { shift, tanggal, shiftStartWIB } = resolveShiftAndDate(
-          wib,
-          line.shift_scheme,
-        );
-        const lineNotRunning = isLineNotRunning(wib, shiftStartWIB);
+        const { tanggal: fallbackDate, shiftStartWIB: fallbackShiftStartWIB } =
+          resolveShiftAndDate(wib, line.shift_scheme);
+        const lineNotRunning = isLineNotRunning(wib, fallbackShiftStartWIB);
+        const yesterday = new Date(wib.getTime() - 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const todayStr = wib.toISOString().slice(0, 10);
 
         const query = `
           SELECT
+            ${COLS.tanggal}            AS tanggal,
+            ${COLS.shift}              AS shift,
             ${COLS.output_plan}       AS output_plan,
             ${COLS.output_actual}     AS output_actual,
             ${COLS.qty_reject}        AS qty_reject,
@@ -409,16 +439,20 @@ router.get("/summary-all", async (req, res) => {
             ${COLS.oee}               AS oee
           FROM ${getViewForTempat(line.tempat)}
           WHERE ${COLS.line} = $1
-            AND ${COLS.shift} = $2
-            AND DATE(${COLS.tanggal}) = $3
-          LIMIT 1
+            AND DATE(${COLS.tanggal}) IN ($2, $3)
         `;
         const result = await getPoolForTempat(line.tempat).query(query, [
           line.line_code,
-          shift,
-          tanggal,
+          todayStr,
+          yesterday,
         ]);
-        const row = result.rows[0] || null;
+        const row = pickActiveRow(result.rows, wib, "shift");
+        const shift = row ? row.shift : null;
+        const tanggal = row
+          ? row.tanggal instanceof Date
+            ? row.tanggal.toISOString().slice(0, 10)
+            : String(row.tanggal).slice(0, 10)
+          : fallbackDate;
 
         const output_plan = Number(row?.output_plan) || 0;
         const output_actual = Number(row?.output_actual) || 0;
@@ -481,14 +515,18 @@ router.get("/summary-by-tempat", async (req, res) => {
     // Ambil data tiap line (sama seperti summary-all tapi kita group sendiri)
     const lineResults = await Promise.all(
       allLines.map(async (line) => {
-        const { shift, tanggal, shiftStartWIB } = resolveShiftAndDate(
-          wib,
-          line.shift_scheme,
-        );
-        const lineNotRunning = isLineNotRunning(wib, shiftStartWIB);
+        const { tanggal: fallbackDate, shiftStartWIB: fallbackShiftStartWIB } =
+          resolveShiftAndDate(wib, line.shift_scheme);
+        const lineNotRunning = isLineNotRunning(wib, fallbackShiftStartWIB);
+        const yesterday = new Date(wib.getTime() - 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const todayStr = wib.toISOString().slice(0, 10);
 
         const query = `
           SELECT
+            ${COLS.tanggal}          AS tanggal,
+            ${COLS.shift}            AS shift,
             ${COLS.output_plan}     AS output_plan,
             ${COLS.output_actual}   AS output_actual,
             ${COLS.qty_reject}      AS qty_reject,
@@ -497,16 +535,20 @@ router.get("/summary-by-tempat", async (req, res) => {
             ${COLS.oee}             AS oee
           FROM ${getViewForTempat(line.tempat)}
           WHERE ${COLS.line} = $1
-            AND ${COLS.shift} = $2
-            AND DATE(${COLS.tanggal}) = $3
-          LIMIT 1
+            AND DATE(${COLS.tanggal}) IN ($2, $3)
         `;
         const result = await getPoolForTempat(line.tempat).query(query, [
           line.line_code,
-          shift,
-          tanggal,
+          todayStr,
+          yesterday,
         ]);
-        const row = result.rows[0] || null;
+        const row = pickActiveRow(result.rows, wib, "shift");
+        const shift = row ? row.shift : null;
+        const tanggal = row
+          ? row.tanggal instanceof Date
+            ? row.tanggal.toISOString().slice(0, 10)
+            : String(row.tanggal).slice(0, 10)
+          : fallbackDate;
 
         const output_plan = Number(row?.output_plan) || 0;
         const output_actual = Number(row?.output_actual) || 0;
@@ -644,25 +686,26 @@ router.get("/hourly-trend", async (req, res) => {
     // Query semua kolom hourly sekaligus per line (1 query per line)
     const lineData = await Promise.all(
       lines.map(async (line) => {
-        const { shift, tanggal } = resolveShiftAndDate(wib, line.shift_scheme);
         const hourlySelects = HOURLY.map(
           (h, i) => `${h.plan} AS plan_${i}, ${h.actual} AS actual_${i}`,
         ).join(", ");
+        const yesterday = new Date(wib.getTime() - 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const todayStr = wib.toISOString().slice(0, 10);
 
         const query = `
-          SELECT ${hourlySelects}
+          SELECT ${COLS.tanggal} AS tanggal, ${COLS.shift} AS shift, ${hourlySelects}
           FROM ${getViewForTempat(line.tempat)}
           WHERE ${COLS.line} = $1
-            AND ${COLS.shift} = $2
-            AND DATE(${COLS.tanggal}) = $3
-          LIMIT 1
+            AND DATE(${COLS.tanggal}) IN ($2, $3)
         `;
         const result = await getPoolForTempat(line.tempat).query(query, [
           line.line_code,
-          shift,
-          tanggal,
+          todayStr,
+          yesterday,
         ]);
-        return result.rows[0] || null;
+        return pickActiveRow(result.rows, wib, "shift");
       }),
     );
 
