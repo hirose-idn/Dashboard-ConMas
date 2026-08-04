@@ -45,6 +45,39 @@ function getPushTypeForPath(path) {
 const PUSH_FALLBACK_MAX_AGE_MS =
   Number(process.env.PUSH_FALLBACK_MAX_AGE_MS) || 5 * 60 * 1000;
 
+// ⚠️ BUG LAMA: "monthly-summary-YYYY-M" buat bulan yang UDAH LEWAT (bukan
+// bulan berjalan) selalu ke-reject dianggap "basi" oleh cek umur 5 menit
+// di atas — padahal pushSyncService.js di SGP/Systech CUMA push tipe
+// bulan BERJALAN (lihat komentar di sana), jadi begitu bulan itu tutup,
+// row terakhirnya di subcont_push_latest emang gak akan di-refresh LAGI
+// SELAMANYA. Umurnya bakal terus nambah (berhari-hari, berbulan-bulan) dan
+// SELALU lebih dari 5 menit, walau ISINYA valid selamanya (angka final
+// bulan yang udah closed, gak akan berubah lagi). Ini yang bikin Executive
+// Dashboard nampilin actual SGP/Systech = 0 begitu pindah ke bulan lalu,
+// padahal datanya beneran ada, cuma ke-filter salah sebagai "stale".
+//
+// Fix: kalau tipe push-nya "monthly-summary" DAN bulan yang diminta bukan
+// bulan berjalan (WIB) lagi, skip cek umur sama sekali (maxAge = Infinity)
+// — anggap data final, gak pernah basi. Bulan BERJALAN tetap pakai cek
+// umur normal (5 menit), karena angkanya masih bisa berubah tiap saat.
+function isClosedMonth(year, month) {
+  const wib = new Date(Date.now() + 7 * 3600 * 1000);
+  const curYear = wib.getUTCFullYear();
+  const curMonth = wib.getUTCMonth() + 1;
+  return year < curYear || (year === curYear && month < curMonth);
+}
+
+function resolveMaxAgeForPushType(pushType) {
+  const match = /^monthly-summary-(\d+)-(\d+)$/.exec(pushType);
+  if (match) {
+    const [, y, m] = match;
+    if (isClosedMonth(Number(y), Number(m))) {
+      return Infinity; // bulan udah tutup, data final, gak akan di-push ulang lagi
+    }
+  }
+  return PUSH_FALLBACK_MAX_AGE_MS;
+}
+
 // Coba ambil data push-sync terakhir sebagai FALLBACK — dipanggil cuma
 // pas pull HTTP normal gagal (timeout/unreachable/error), BUKAN dipakai
 // duluan. Kalau gak ada data push yang cukup fresh, balikin null dan
@@ -53,7 +86,8 @@ async function tryPushFallback(sourceKey, source, path) {
   const pushType = getPushTypeForPath(path);
   if (!pushType) return null; // path ini belum ada di push-sync, atau /monthly-summary tanpa year/month
 
-  const pushed = await getLatestPush(sourceKey, pushType, PUSH_FALLBACK_MAX_AGE_MS);
+  const maxAge = resolveMaxAgeForPushType(pushType);
+  const pushed = await getLatestPush(sourceKey, pushType, maxAge);
   if (!pushed) return null;
 
   return {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -309,10 +309,33 @@ export default function ExecutiveDashboard({ onOpenHub }) {
   const [trend, setTrend] = useState(null);
   const [error, setError] = useState(null);
 
+  // ⚠️ FIX race condition "actual ilang/nyasar pas gonta-ganti bulan cepat":
+  // fetch /month buat SGP/Systech manggil HTTP ke subcont (bisa lambat,
+  // sampai beberapa detik), sedangkan /month buat bulan lain (lokal) bisa
+  // balik jauh lebih cepat. Tanpa guard, kalau user pindah bulan SEBELUM
+  // request bulan sebelumnya selesai, respons yang telat itu bisa nimpa
+  // state dengan data bulan yang UDAH GAK DIPILIH LAGI (out-of-order
+  // response) — kelihatan kayak "data ilang" pas balik ke bulan itu lagi.
+  // Fix: simpen year+month yang lagi diminta di ref, dan pas respons balik,
+  // cek dulu masih cocok sama ref itu apa nggak sebelum di-setState.
+  const requestedMonthRef = useRef({ year, month });
+  const requestedYearRef = useRef(year);
+
   const fetchMonth = useCallback(async () => {
+    const reqYear = year;
+    const reqMonth = month;
+    requestedMonthRef.current = { year: reqYear, month: reqMonth };
     try {
-      const res = await fetch(`${BASE_URL}/api/executive/month?year=${year}&month=${month}`);
+      const res = await fetch(`${BASE_URL}/api/executive/month?year=${reqYear}&month=${reqMonth}`);
       const json = await res.json();
+      // Kalau user udah pindah ke bulan/tahun lain SEBELUM respons ini
+      // balik, buang aja — jangan timpa state dengan data yang udah basi.
+      const stillRelevant =
+        requestedMonthRef.current.year === reqYear &&
+        requestedMonthRef.current.month === reqMonth &&
+        year === reqYear &&
+        month === reqMonth;
+      if (!stillRelevant) return;
       if (json.success) {
         setMonthData(json);
         setError(null);
@@ -320,14 +343,19 @@ export default function ExecutiveDashboard({ onOpenHub }) {
         setError(json.message || "Gagal ambil data bulan ini");
       }
     } catch (err) {
-      setError(err.message);
+      if (requestedMonthRef.current.year === reqYear && requestedMonthRef.current.month === reqMonth) {
+        setError(err.message);
+      }
     }
   }, [year, month]);
 
   const fetchTrend = useCallback(async () => {
+    const reqYear = year;
+    requestedYearRef.current = reqYear;
     try {
-      const res = await fetch(`${BASE_URL}/api/executive/trend?year=${year}`);
+      const res = await fetch(`${BASE_URL}/api/executive/trend?year=${reqYear}`);
       const json = await res.json();
+      if (requestedYearRef.current !== reqYear) return; // udah pindah tahun, buang respons basi
       if (json.success) setTrend(json);
     } catch {
       // Trend chart bukan data kritis — diemin, biarin chart kosong aja

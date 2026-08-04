@@ -30,5 +30,29 @@
     "target": 28535,
     "actual": 0,
     "updatedAt": "2026-07-27T08:48:41.150Z"
+  },
+  {
+    "year": 2026,
+    "month": 8,
+    "tempat": "sgp",
+    "target": 3089861,
+    "actual": 0,
+    "updatedAt": "2026-08-04T00:00:36.566Z"
+  },
+  {
+    "year": 2026,
+    "month": 8,
+    "tempat": "systech",
+    "target": 1328300,
+    "actual": 0,
+    "updatedAt": "2026-08-04T01:19:53.581Z"
+  },
+  {
+    "year": 2026,
+    "month": 8,
+    "tempat": "internal",
+    "target": 2305844,
+    "actual": 0,
+    "updatedAt": "2026-08-04T00:00:18.006Z"
   }
 ]
