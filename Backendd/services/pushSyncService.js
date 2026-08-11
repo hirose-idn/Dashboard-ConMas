@@ -26,6 +26,7 @@ const {
   getDailyTrend,
   getLocalMonthlySummary,
 } = require("./summaryService");
+const { getLineRangeBreakdown } = require("./lineBreakdownService");
 
 const SOURCE_NAME = process.env.SOURCE_NAME; // 'sgp' | 'systech'
 const MASTER_URL = process.env.PUSH_MASTER_URL; // https://<domain-atau-tunnel>/api/sync
@@ -75,11 +76,49 @@ async function sendToMaster(item) {
 // Kumpulin data yang mau di-push siklus ini. Ditambah try/catch per-jenis
 // biar 1 query gagal (mis. getLocalMonthlySummary lagi lambat) gak bikin
 // jenis data lain ikut gak ke-push.
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+// Rentang 1 bulan PENUH (tgl 1 s.d. hari terakhir) — sama persis pola yang
+// dipakai Frontend (BreakdownTempat.jsx `monthRange()`) buat manggil
+// /line-range-breakdown, biar type push-nya ketemu pas dicocokkan di
+// sourceClient.js.
+function fullMonthRange(year, month) {
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    start: `${year}-${pad2(month)}-01`,
+    end: `${year}-${pad2(month)}-${pad2(lastDay)}`,
+  };
+}
+
+// Loopback ke /api/external/dashboard/* (routes/api-external.js) —
+// wrapper itu sendiri loopback lagi ke /api/dashboard/* (routes/dashboard.js,
+// logic-nya masih nempel di route handler, belum diextract ke service
+// function), jadi 1 hop tambahan tapi zero risk ke kode lama.
+const LOCAL_PORT = process.env.PORT || 3000;
+async function fetchLocalDashboard(pathName, query = {}) {
+  const qs = new URLSearchParams(query).toString();
+  const url = `http://localhost:${LOCAL_PORT}/api/external/dashboard/${pathName}${qs ? `?${qs}` : ""}`;
+  // /api/external/* SEMUANYA di-gate `requireApiKey` (lihat routes/api-
+  // external.js), termasuk 5 route dashboard/* yang baru — loopback ke DIRI
+  // SENDIRI pun tetep kena, jadi header ini WAJIB dikirim, bukan opsional.
+  const r = await axios.get(url, {
+    timeout: 10000,
+    headers: { "x-api-key": process.env.EXTERNAL_API_KEY || "" },
+  });
+  if (!r.data || r.data.status !== "ok") {
+    throw new Error(r.data?.message || `dashboard/${pathName} proxy gagal`);
+  }
+  return r.data.data;
+}
+
 async function collectPayloads() {
   const timestamp = new Date().toISOString();
   const wib = new Date(Date.now() + 7 * 3600 * 1000);
   const year = wib.getUTCFullYear();
   const month = wib.getUTCMonth() + 1;
+  const { start: monthStart, end: monthEnd } = fullMonthRange(year, month);
 
   const jobs = [
     { type: "summary", fn: () => getLocalSummary() },
@@ -89,6 +128,40 @@ async function collectPayloads() {
     // fallback buat BULAN YANG SAMA persis, bukan ke-apply asal ke bulan
     // lain yang diminta pas pull HTTP normal gagal.
     { type: `monthly-summary-${year}-${month}`, fn: () => getLocalMonthlySummary(year, month) },
+    // Sama polanya kayak monthly-summary di atas — "Breakdown per Line"
+    // di Frontend selalu minta 1 bulan PENUH (tgl 1 s.d. akhir bulan),
+    // jadi aman di-key per year-month juga. Ini yang bikin halaman
+    // "Breakdown per Line" buat SGP/Systech nampilin "Error: Kredensial/
+    // URL belum dikonfigurasi" kalau pull lagi mati — sebelumnya type ini
+    // gak pernah dipush sama sekali.
+    {
+      type: `line-range-breakdown-${year}-${month}`,
+      fn: () => getLineRangeBreakdown(null, monthStart, monthEnd),
+    },
+    // 5 jenis di bawah ini buat isi "Dashboard Utama" pas dibuka dari
+    // Master Hub buat lokasi ini (lihat routes/master.js dashboard/*
+    // proxy). "summary-all" & "summary-by-tempat" gak ada parameter
+    // (selalu snapshot shift berjalan), jadi type-nya statis kayak
+    // "summary" — direfresh tiap siklus, bukan di-key per-hari/bulan.
+    { type: "dashboard-summary-all", fn: () => fetchLocalDashboard("summary-all") },
+    { type: "dashboard-summary-by-tempat", fn: () => fetchLocalDashboard("summary-by-tempat") },
+    // "summary-all-daily" defaultnya HARI INI (WIB) kalau ?date= gak
+    // diisi — cuma tanggal HARI BERJALAN yang di-push tiap siklus, sama
+    // keterbatasannya kayak "range-trend": kalau user geser panel Ranking
+    // Line ke tanggal lain pas lagi offline, gak ada fallback buat
+    // tanggal itu (pull normal tetap satu-satunya jalur buat histori).
+    {
+      type: `dashboard-summary-all-daily-${year}-${pad2(month)}-${pad2(wib.getUTCDate())}`,
+      fn: () => fetchLocalDashboard("summary-all-daily"),
+    },
+    {
+      type: `dashboard-daily-trend-${year}-${month}`,
+      fn: () => fetchLocalDashboard("daily-trend", { year, month }),
+    },
+    {
+      type: `dashboard-monthly-summary-${year}-${month}`,
+      fn: () => fetchLocalDashboard("monthly-summary", { year, month }),
+    },
     // "range-trend" sengaja gak dipush rutin — parameternya bebas
     // (start/end custom dari user di Master), gak pas buat cache berkala.
   ];
@@ -99,29 +172,48 @@ async function collectPayloads() {
       const data = await job.fn();
       payloads.push({ type: job.type, timestamp, data });
     } catch (err) {
-      console.error(`PUSHSYNC/collect (${job.type}) gagal:`, err.message);
+      // err.message dari Axios itu generic banget ("Request failed with
+      // status code 500") — nutupin body response aslinya yang biasanya
+      // ada pesan/stack lebih spesifik. err.response.data itu isinya JSON
+      // error dari server (kalau ada), lebih kepake buat debug.
+      const detail = err.response?.data
+        ? JSON.stringify(err.response.data)
+        : err.message;
+      console.error(`PUSHSYNC/collect (${job.type}) gagal:`, detail);
     }
   }
   return payloads;
 }
 
+// Batasi berapa item backlog yang dicoba kirim ulang PER SIKLUS — kalau
+// backlog gede (misal abis Master down/reject beberapa saat), jangan
+// nembak SEMUANYA sekaligus dalam 1 siklus (bisa puluhan/ratusan request
+// beruntun, gampang nabrak syncLimiter di Master lagi -> gagal lagi ->
+// numpuk lagi, gak pernah abis-abis). Kuras pelan-pelan tiap siklus aja.
+const MAX_RETRY_PER_CYCLE = 15;
+
 async function syncCycle() {
   let queue = loadQueue();
 
-  // 1) Coba kosongin antrian lama dulu (retry backlog dari siklus sebelumnya)
+  // 1) Coba kosongin antrian lama dulu (retry backlog dari siklus
+  // sebelumnya) — MAX_RETRY_PER_CYCLE item terlama duluan (FIFO), sisanya
+  // nunggu siklus berikutnya.
   if (queue.length > 0) {
+    const toRetry = queue.slice(0, MAX_RETRY_PER_CYCLE);
+    const rest = queue.slice(MAX_RETRY_PER_CYCLE);
     const stillFailed = [];
-    for (const item of queue) {
+    for (const item of toRetry) {
       try {
         await sendToMaster(item);
       } catch (_) {
         stillFailed.push(item);
       }
     }
-    queue = stillFailed;
-    if (stillFailed.length < queue.length) {
-      console.log(`PUSHSYNC: ${queue.length - stillFailed.length} item backlog berhasil dikirim ulang`);
+    const sentCount = toRetry.length - stillFailed.length;
+    if (sentCount > 0) {
+      console.log(`PUSHSYNC: ${sentCount} item backlog berhasil dikirim ulang`);
     }
+    queue = [...stillFailed, ...rest];
   }
 
   // 2) Ambil & kirim data terbaru

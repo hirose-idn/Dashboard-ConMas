@@ -28,13 +28,21 @@ export default function App() {
     setUrlState({ line: code, view: null, tempat: null });
   }, []);
 
-  const goToMaster = useCallback(() => {
+  // `tempat` opsional — diisi cuma pas Internal buka "Dashboard Utama"
+  // lokasi SGP/Systech LEWAT Master Hub (proxy /api/master/dashboard/*,
+  // lihat MasterDashboard.jsx isRemoteViaMaster). Kosongin buat kasus lama
+  // (instance buka Master Dashboard-nya sendiri).
+  const goToMaster = useCallback((tempat) => {
     const url = new URL(window.location.href);
     url.searchParams.delete("line");
-    url.searchParams.delete("tempat");
     url.searchParams.set("view", "master");
+    if (tempat) {
+      url.searchParams.set("tempat", tempat);
+    } else {
+      url.searchParams.delete("tempat");
+    }
     window.history.pushState({}, "", url);
-    setUrlState({ line: null, view: "master", tempat: null });
+    setUrlState({ line: null, view: "master", tempat: tempat || null });
   }, []);
 
   const goToBreakdown = useCallback((tempat) => {
@@ -118,17 +126,12 @@ export default function App() {
             goToBreakdown(tempatKey);
             return;
           }
-          // target === "master" → cuma valid buat Internal dari Hub, karena
-          // Hub itu sendiri cuma keliatan dari Internal. SGP/Systech punya
-          // Master Dashboard-nya sendiri, tapi diakses dari LinePicker
-          // ("Lihat Master Dashboard"), bukan dari sini.
-          if (tempatKey === "internal") {
-            goToMaster();
-            return;
-          }
-          window.alert(
-            `"Dashboard Utama" buat "${tempatKey}" belum tersedia dari Hub — pakai "Breakdown per Line" dulu ya.`,
-          );
+          // target === "master" → Internal buka Master Dashboard-nya
+          // sendiri (tanpa proxy). SGP/Systech: dulu cuma alert "belum
+          // tersedia" — sekarang proxy lewat /api/master/dashboard/*
+          // (baca data via push-sync kalau pull lagi mati), lihat
+          // MasterDashboard.jsx isRemoteViaMaster.
+          goToMaster(tempatKey === "internal" ? undefined : tempatKey);
         }}
         onOpenExecutive={IS_INTERNAL_INSTANCE ? goToExecutive : undefined}
       />
@@ -138,10 +141,12 @@ export default function App() {
     return (
       <MasterDashboard
         onSelect={selectLine}
-        // Internal: "back" balik ke Master Hub (konsisten alur lama).
+        // Internal: "back" balik ke Master Hub (konsisten alur lama, dan
+        // satu-satunya jalur buat sampai ke sini pas tempat=sgp/systech).
         // Subcont: gak ada Hub, "back" balik ke halaman Pilih Line.
         onBack={IS_INTERNAL_INSTANCE ? goToHub : goToPicker}
         onBreakdown={goToBreakdown}
+        tempat={urlState.tempat}
       />
     );
   }

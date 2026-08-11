@@ -69,6 +69,25 @@ const HOURLY = [
   { label: "06-07", plan: "cluster_1_2671_n", actual: "cluster_1_2672_n" },
 ];
 
+// BUG LAMA yang baru ketauan: label "06-07" muncul 2x di array HOURLY di
+// atas (index 0 = jam pertama shift-1 3-shift/cluster_1_151-152, index 24
+// = jam terakhir shift-2 2-shift yang lewat tengah malam/cluster_1_2671-
+// 2672). Kode di bawah SEBELUMNYA bikin alias SQL & key row lookup dari
+// h.label doang (`hour_06_07_plan` dst) — karena 2 index beda punya label
+// SAMA, alias-nya BENTROK, dan di JS object key yang duplikat saling
+// TIMPA (yang belakangan/index 24 nimpa index 0). Akibatnya jam PERTAMA
+// shift-1 3-shift SELALU keliatan kosong di dashboard walau datanya ada
+// di DB (cluster_1_151_n/152_n) — yang kebaca malah cluster_1_2671_n/
+// 2672_n (index 24, biasanya emang kosong karena jarang ada shift yang
+// beneran butuh slot ke-25).
+//
+// Fix: key lookup/alias SQL pake INDEX ARRAY (dijamin unik), BUKAN label
+// (bisa duplikat). `slot: h.label` di response tetep sama persis kayak
+// sebelumnya (frontend gak perlu berubah).
+function hourlyColKey(i) {
+  return `h${i}`;
+}
+
 // ─────────────────────────────────────────────────────────────
 //  LOGIC SHIFT — generic per shift_scheme (2 atau 3)
 //
@@ -92,6 +111,7 @@ const {
   resolveShiftAndDate,
   isLineNotRunning,
   isRowStale,
+  getLineStatus3,
   parseShiftLabel,
   shiftWindowFromLabel,
   pickActiveRow,
@@ -139,9 +159,9 @@ router.get("/", async (req, res) => {
       `${s.swi} AS slot_${i}_swi`,
       `${s.actual} AS slot_${i}_actual`,
     ]);
-    const hourlySelects = HOURLY.flatMap((h) => [
-      `${h.plan} AS hour_${h.label.replace(/-/g, "_")}_plan`,
-      `${h.actual} AS hour_${h.label.replace(/-/g, "_")}_actual`,
+    const hourlySelects = HOURLY.flatMap((h, i) => [
+      `${h.plan} AS hour_${hourlyColKey(i)}_plan`,
+      `${h.actual} AS hour_${hourlyColKey(i)}_actual`,
     ]);
 
     const query = `
@@ -206,6 +226,12 @@ router.get("/", async (req, res) => {
         shift,
         tanggal: targetDate,
         line_not_running: lineNotRunning,
+        line_status: getLineStatus3({
+          hasRow: false,
+          hourly: null,
+          shiftStartWIB: fallbackShiftStartWIB,
+          nowWIB: wib,
+        }),
         availability_operator: null,
       });
     }
@@ -228,8 +254,8 @@ router.get("/", async (req, res) => {
     }
 
     // ── Hourly array (dipakai langsung, gak perlu endpoint /trend lagi) ──
-    const hourly = HOURLY.map((h) => {
-      const key = h.label.replace(/-/g, "_");
+    const hourly = HOURLY.map((h, i) => {
+      const key = hourlyColKey(i);
       const plan =
         row[`hour_${key}_plan`] != null
           ? Number(row[`hour_${key}_plan`])
@@ -271,6 +297,12 @@ router.get("/", async (req, res) => {
       shift,
       tanggal: targetDate,
       line_not_running: isRowStale(hourly, rowShiftStartWIB, wib),
+      line_status: getLineStatus3({
+        hasRow: true,
+        hourly,
+        shiftStartWIB: rowShiftStartWIB,
+        nowWIB: wib,
+      }),
       line: row.line,
       cell_leader_nama: row.cell_leader,
       pj_teknis_nama: row.teknisi,
@@ -422,6 +454,17 @@ router.get("/summary-all", async (req, res) => {
           .slice(0, 10);
         const todayStr = wib.toISOString().slice(0, 10);
 
+        // Kolom hourly ditambahin ke SELECT — sebelumnya endpoint ini gak
+        // narik ini sama sekali, jadi gak bisa bedain "row ada tapi udah
+        // berhenti di tengah shift" (isRowStale) vs "beneran masih jalan".
+        // Sekarang samain persis kayak GET / (drill-down per-line) di atas,
+        // biar status Running/Tidak Running KONSISTEN di semua endpoint —
+        // sumbernya emang sama-sama dari dashboard per line.
+        const hourlySelects = HOURLY.flatMap((h, i) => [
+          `${h.plan} AS hour_${hourlyColKey(i)}_plan`,
+          `${h.actual} AS hour_${hourlyColKey(i)}_actual`,
+        ]);
+
         const query = `
           SELECT
             ${COLS.tanggal}            AS tanggal,
@@ -436,7 +479,8 @@ router.get("/summary-all", async (req, res) => {
             ${COLS.stoptime_machine}  AS stoptime_machine,
             ${COLS.stoptime_material} AS stoptime_material,
             ${COLS.stoptime_method}   AS stoptime_method,
-            ${COLS.oee}               AS oee
+            ${COLS.oee}               AS oee,
+            ${hourlySelects.join(",\n            ")}
           FROM ${getViewForTempat(line.tempat)}
           WHERE ${COLS.line} = $1
             AND DATE(${COLS.tanggal}) IN ($2, $3)
@@ -454,6 +498,33 @@ router.get("/summary-all", async (req, res) => {
             : String(row.tanggal).slice(0, 10)
           : fallbackDate;
 
+        // shiftStartWIB dari LABEL ASLI row (bukan tebakan config) — sama
+        // pola persis kayak rowShiftStartWIB di GET / (drill-down per-line).
+        const parsedFromRow = row ? parseShiftLabel(row.shift) : null;
+        const rowShiftStartWIB =
+          row && parsedFromRow
+            ? shiftWindowFromLabel(tanggal, parsedFromRow.scheme, parsedFromRow.shiftNum)
+                .startWIB
+            : fallbackShiftStartWIB;
+        const hourly = row
+          ? HOURLY.map((h, i) => {
+              const key = hourlyColKey(i);
+              return {
+                slot: h.label,
+                output_actual:
+                  row[`hour_${key}_actual`] != null
+                    ? Number(row[`hour_${key}_actual`])
+                    : null,
+              };
+            })
+          : null;
+        const lineStatus = getLineStatus3({
+          hasRow: Boolean(row),
+          hourly,
+          shiftStartWIB: rowShiftStartWIB,
+          nowWIB: wib,
+        });
+
         const output_plan = Number(row?.output_plan) || 0;
         const output_actual = Number(row?.output_actual) || 0;
         const stoptime_plan = Number(row?.stoptime_plan) || 0;
@@ -466,7 +537,8 @@ router.get("/summary-all", async (req, res) => {
           tempat: line.tempat || "Internal",
           shift,
           tanggal,
-          line_not_running: row ? false : lineNotRunning,
+          line_not_running: lineStatus !== "running",
+          line_status: lineStatus,
           has_data: Boolean(row),
           output_plan,
           output_actual,
@@ -517,11 +589,18 @@ router.get("/summary-by-tempat", async (req, res) => {
       allLines.map(async (line) => {
         const { tanggal: fallbackDate, shiftStartWIB: fallbackShiftStartWIB } =
           resolveShiftAndDate(wib, line.shift_scheme);
-        const lineNotRunning = isLineNotRunning(wib, fallbackShiftStartWIB);
         const yesterday = new Date(wib.getTime() - 86_400_000)
           .toISOString()
           .slice(0, 10);
         const todayStr = wib.toISOString().slice(0, 10);
+
+        // Hourly ditambahin — sama alasannya kayak /summary-all di atas,
+        // biar status Running/Tidak Running konsisten (isRowStale), bukan
+        // "row ada = Running" doang.
+        const hourlySelects = HOURLY.flatMap((h, i) => [
+          `${h.plan} AS hour_${hourlyColKey(i)}_plan`,
+          `${h.actual} AS hour_${hourlyColKey(i)}_actual`,
+        ]);
 
         const query = `
           SELECT
@@ -532,7 +611,8 @@ router.get("/summary-by-tempat", async (req, res) => {
             ${COLS.qty_reject}      AS qty_reject,
             ${COLS.stoptime_plan}   AS stoptime_plan,
             ${COLS.stoptime_actual} AS stoptime_actual,
-            ${COLS.oee}             AS oee
+            ${COLS.oee}             AS oee,
+            ${hourlySelects.join(",\n            ")}
           FROM ${getViewForTempat(line.tempat)}
           WHERE ${COLS.line} = $1
             AND DATE(${COLS.tanggal}) IN ($2, $3)
@@ -550,11 +630,35 @@ router.get("/summary-by-tempat", async (req, res) => {
             : String(row.tanggal).slice(0, 10)
           : fallbackDate;
 
+        const parsedFromRow = row ? parseShiftLabel(row.shift) : null;
+        const rowShiftStartWIB =
+          row && parsedFromRow
+            ? shiftWindowFromLabel(tanggal, parsedFromRow.scheme, parsedFromRow.shiftNum)
+                .startWIB
+            : fallbackShiftStartWIB;
+        const hourly = row
+          ? HOURLY.map((h, i) => {
+              const key = hourlyColKey(i);
+              return {
+                slot: h.label,
+                output_actual:
+                  row[`hour_${key}_actual`] != null
+                    ? Number(row[`hour_${key}_actual`])
+                    : null,
+              };
+            })
+          : null;
+        const lineStatus = getLineStatus3({
+          hasRow: Boolean(row),
+          hourly,
+          shiftStartWIB: rowShiftStartWIB,
+          nowWIB: wib,
+        });
+
         const output_plan = Number(row?.output_plan) || 0;
         const output_actual = Number(row?.output_actual) || 0;
         const stoptime_plan = Number(row?.stoptime_plan) || 0;
         const stoptime_actual = Number(row?.stoptime_actual) || 0;
-        const not_running = row ? false : lineNotRunning;
 
         return {
           line_code: line.line_code,
@@ -562,7 +666,8 @@ router.get("/summary-by-tempat", async (req, res) => {
           tempat: line.tempat || "Internal",
           shift,
           tanggal,
-          line_not_running: not_running,
+          line_not_running: lineStatus !== "running",
+          line_status: lineStatus,
           has_data: Boolean(row),
           output_plan,
           output_actual,

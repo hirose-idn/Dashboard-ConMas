@@ -117,9 +117,40 @@ function resolveShiftAndDate(nowWIB, scheme) {
 const NOT_RUNNING_THRESHOLD_MIN =
   parseInt(process.env.LINE_NOT_RUNNING_THRESHOLD_MIN, 10) || 120;
 
+// Beda sama NOT_RUNNING_THRESHOLD_MIN di atas (itu buat TENGAH shift — line
+// sempet jalan terus berhenti). Ini KHUSUS buat AWAL shift — row buat shift
+// aktif belum ada SAMA SEKALI, masih wajar operator belom sempet input
+// (serah-terima shift, setup, ganti produk — durasinya beda-beda tiap line,
+// gak bisa dipukul rata). Configurable KEPISAH per .env instance, default
+// disamain ke NOT_RUNNING_THRESHOLD_MIN kalau gak diisi eksplisit (biar
+// behavior lama gak berubah tiba-tiba pas upgrade):
+//   LINE_START_GRACE_MIN=30   (contoh: line yang emang biasa cepet mulai)
+const START_GRACE_MIN =
+  parseInt(process.env.LINE_START_GRACE_MIN, 10) || NOT_RUNNING_THRESHOLD_MIN;
+
 function isLineNotRunning(nowWIB, shiftStartWIB) {
   const elapsedMin = (nowWIB.getTime() - shiftStartWIB.getTime()) / 60_000;
   return elapsedMin > NOT_RUNNING_THRESHOLD_MIN;
+}
+
+// ─────────────────────────────────────────────────────────────
+// getLineStatus3 — versi 3-state dari isLineNotRunning/isRowStale di bawah.
+// Dulu cuma 2 state (Running/Tidak Running), dan kasus "row belum ada tapi
+// masih di bawah threshold" ke-lumped jadi "Running" — padahal jujurnya itu
+// "belum ketauan", bukan "udah confirmed jalan". State "waiting" ini yang
+// benerin itu, pake threshold KEPISAH (START_GRACE_MIN) biar gak numpang di
+// angka yang sama kayak stale-check tengah shift.
+//
+//   - row belum ada, masih di bawah START_GRACE_MIN     -> "waiting"
+//   - row belum ada, udah lewat START_GRACE_MIN          -> "not_running"
+//   - row ada, isRowStale() true (berhenti di tengah)    -> "not_running"
+//   - row ada, isRowStale() false                        -> "running"
+function getLineStatus3({ hasRow, hourly, shiftStartWIB, nowWIB }) {
+  if (!hasRow) {
+    const elapsedMin = (nowWIB.getTime() - shiftStartWIB.getTime()) / 60_000;
+    return elapsedMin > START_GRACE_MIN ? "not_running" : "waiting";
+  }
+  return isRowStale(hourly, shiftStartWIB, nowWIB) ? "not_running" : "running";
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -272,7 +303,9 @@ module.exports = {
   resolveShiftAndDate,
   isLineNotRunning,
   isRowStale,
+  getLineStatus3,
   NOT_RUNNING_THRESHOLD_MIN,
+  START_GRACE_MIN,
   parseShiftLabel,
   shiftWindowFromLabel,
   pickActiveRow,

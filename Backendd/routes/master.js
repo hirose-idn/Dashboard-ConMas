@@ -21,8 +21,30 @@ const {
   fetchSourceMonthlySummary,
   fetchSourceRangeTrend,
   fetchSourceLineRangeBreakdown,
+  fetchSourceDashboardSummaryAll,
+  fetchSourceDashboardSummaryByTempat,
+  fetchSourceDashboardSummaryAllDaily,
+  fetchSourceDashboardDailyTrend,
+  fetchSourceDashboardMonthlySummary,
 } = require("../services/sourceClient");
 const { getLineRangeBreakdown } = require("../services/lineBreakdownService");
+const axios = require("axios");
+
+// Loopback ke /api/dashboard/* PROSES INI SENDIRI — cuma kepake buat
+// source.type === "local" (tempat="internal") di 5 route dashboard/*
+// di bawah. Beda dari services/pushSyncService.js yang loopback lewat
+// /api/external/dashboard/* (butuh lewat situ karena dia proses TERPISAH
+// di instance subcont) — di sini Master manggil dirinya sendiri, jadi
+// langsung ke /api/dashboard/* aja, gak perlu muter lewat /api/external.
+async function fetchLocalDashboardJson(pathName, query = {}) {
+  const qs = new URLSearchParams(query).toString();
+  const url = `http://localhost:${process.env.PORT || 3000}/api/dashboard/${pathName}${qs ? `?${qs}` : ""}`;
+  const r = await axios.get(url, { timeout: 10000 });
+  if (!r.data || r.data.success !== true) {
+    throw new Error(r.data?.message || `dashboard/${pathName} gagal`);
+  }
+  return r.data.data;
+}
 
 async function collectAllSources(date) {
   const results = await Promise.allSettled(
@@ -381,6 +403,109 @@ router.get("/line-range-breakdown", async (req, res) => {
     end,
   );
   res.json(result);
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/master/dashboard/* — 5 endpoint proxy buat isi "Dashboard
+//  Utama" pas dibuka LEWAT Master Hub buat lokasi SGP/Systech (tombol
+//  yang dulu cuma nampilin alert "belum tersedia dari Hub"). Sama pola
+//  persis kayak /line-range-breakdown di atas: local -> loopback lokal,
+//  http -> HTTP ke instance bersangkutan (otomatis fallback ke data
+//  push-sync kalau pull gagal/belum dikonfigurasi, lihat sourceClient.js).
+// ─────────────────────────────────────────────────────────────
+function resolveSourceOr400(req, res) {
+  const sourceKey = req.query.source;
+  const source = SOURCES[sourceKey];
+  if (!source) {
+    res.status(400).json({
+      status: "error",
+      message: `Source "${sourceKey}" tidak dikenal`,
+    });
+    return null;
+  }
+  return { sourceKey, source };
+}
+
+router.get("/dashboard/summary-all", async (req, res) => {
+  const resolved = resolveSourceOr400(req, res);
+  if (!resolved) return;
+  const { sourceKey, source } = resolved;
+  if (source.type === "local") {
+    try {
+      const data = await fetchLocalDashboardJson("summary-all");
+      return res.json({ source: sourceKey, label: source.label, status: "ok", data });
+    } catch (err) {
+      return res.json({ source: sourceKey, label: source.label, status: "error", message: err.message, data: null });
+    }
+  }
+  res.json(await fetchSourceDashboardSummaryAll(sourceKey, source));
+});
+
+router.get("/dashboard/summary-by-tempat", async (req, res) => {
+  const resolved = resolveSourceOr400(req, res);
+  if (!resolved) return;
+  const { sourceKey, source } = resolved;
+  if (source.type === "local") {
+    try {
+      const data = await fetchLocalDashboardJson("summary-by-tempat");
+      return res.json({ source: sourceKey, label: source.label, status: "ok", data });
+    } catch (err) {
+      return res.json({ source: sourceKey, label: source.label, status: "error", message: err.message, data: null });
+    }
+  }
+  res.json(await fetchSourceDashboardSummaryByTempat(sourceKey, source));
+});
+
+router.get("/dashboard/summary-all-daily", async (req, res) => {
+  const resolved = resolveSourceOr400(req, res);
+  if (!resolved) return;
+  const { sourceKey, source } = resolved;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || "") ? req.query.date : null;
+  if (source.type === "local") {
+    try {
+      const data = await fetchLocalDashboardJson("summary-all-daily", date ? { date } : {});
+      return res.json({ source: sourceKey, label: source.label, status: "ok", data });
+    } catch (err) {
+      return res.json({ source: sourceKey, label: source.label, status: "error", message: err.message, data: null });
+    }
+  }
+  res.json(await fetchSourceDashboardSummaryAllDaily(sourceKey, source, date));
+});
+
+router.get("/dashboard/daily-trend", async (req, res) => {
+  const resolved = resolveSourceOr400(req, res);
+  if (!resolved) return;
+  const { sourceKey, source } = resolved;
+  const wib = new Date(Date.now() + 7 * 3600 * 1000);
+  const year = parseInt(req.query.year) || wib.getUTCFullYear();
+  const month = parseInt(req.query.month) || wib.getUTCMonth() + 1;
+  if (source.type === "local") {
+    try {
+      const data = await fetchLocalDashboardJson("daily-trend", { year, month });
+      return res.json({ source: sourceKey, label: source.label, status: "ok", data });
+    } catch (err) {
+      return res.json({ source: sourceKey, label: source.label, status: "error", message: err.message, data: null });
+    }
+  }
+  res.json(await fetchSourceDashboardDailyTrend(sourceKey, source, year, month));
+});
+
+router.get("/dashboard/monthly-summary", async (req, res) => {
+  const resolved = resolveSourceOr400(req, res);
+  if (!resolved) return;
+  const { sourceKey, source } = resolved;
+  const wib = new Date(Date.now() + 7 * 3600 * 1000);
+  const year = parseInt(req.query.year) || wib.getUTCFullYear();
+  const month = parseInt(req.query.month) || wib.getUTCMonth() + 1;
+  if (source.type === "local") {
+    try {
+      const data = await fetchLocalDashboardJson("monthly-summary", { year, month });
+      return res.json({ source: sourceKey, label: source.label, status: "ok", data });
+    } catch (err) {
+      return res.json({ source: sourceKey, label: source.label, status: "error", message: err.message, data: null });
+    }
+  }
+  res.json(await fetchSourceDashboardMonthlySummary(sourceKey, source, year, month));
 });
 
 module.exports = router;

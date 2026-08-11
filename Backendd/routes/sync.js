@@ -25,13 +25,36 @@ const VALID_TYPES = [
   "summary",
   "monthly-trend",
   "range-trend",
+  // Dipakai "Dashboard Utama" pas dibuka lewat Master Hub — gak ada
+  // parameter (selalu snapshot shift berjalan), jadi statis kayak
+  // "summary" di atas, direfresh tiap siklus.
+  "dashboard-summary-all",
+  "dashboard-summary-by-tempat",
 ];
 // "monthly-summary" sekarang dikirim per-bulan: "monthly-summary-2026-7",
 // bukan string statis — biar fallback di sourceClient.js gak ke-apply ke
 // bulan yang salah (lihat komentar di sourceClient.js/getPushTypeForPath).
 const MONTHLY_SUMMARY_TYPE_RE = /^monthly-summary-\d{4}-(1[0-2]|[1-9])$/;
+// "line-range-breakdown" sama polanya kayak monthly-summary di atas —
+// Frontend selalu minta 1 bulan PENUH (tgl 1 s.d. akhir bulan) buat
+// halaman "Breakdown per Line", jadi aman di-key per year-month juga.
+const LINE_BREAKDOWN_TYPE_RE = /^line-range-breakdown-\d{4}-(1[0-2]|[1-9])$/;
+// "dashboard-daily-trend" & "dashboard-monthly-summary" — bagian dari
+// "Dashboard Utama", sama-sama di-key per year-month kayak di atas.
+const DASHBOARD_MONTHLY_TYPE_RE =
+  /^dashboard-(daily-trend|monthly-summary)-\d{4}-(1[0-2]|[1-9])$/;
+// "dashboard-summary-all-daily" — panel Ranking Line, di-key per HARI
+// (bukan bulan), format tanggal PADDED (YYYY-MM-DD) biar gak ambigu.
+const DASHBOARD_DAILY_TYPE_RE =
+  /^dashboard-summary-all-daily-\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 function isValidPushType(type) {
-  return VALID_TYPES.includes(type) || MONTHLY_SUMMARY_TYPE_RE.test(type);
+  return (
+    VALID_TYPES.includes(type) ||
+    MONTHLY_SUMMARY_TYPE_RE.test(type) ||
+    LINE_BREAKDOWN_TYPE_RE.test(type) ||
+    DASHBOARD_MONTHLY_TYPE_RE.test(type) ||
+    DASHBOARD_DAILY_TYPE_RE.test(type)
+  );
 }
 
 // ── Rate limit — longgar tapi tetap ada jaga-jaga ────────────────
@@ -43,7 +66,12 @@ function isValidPushType(type) {
 // dipasang sebelum semua route), jadi aman dipakai di sini.
 const syncLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60, // tiap source push beberapa jenis data tiap ~1 menit, 60/menit cukup longgar
+  // Dulu 60 didesain buat 4 jenis data/source tiap ~1 menit. Sekarang 9
+  // jenis (breakdown per line + 5 dashboard-*), plus retry backlog bisa
+  // nyumbang sampe 15 request/siklus (lihat MAX_RETRY_PER_CYCLE di
+  // pushSyncService.js) — dinaikin biar ada headroom, gak gampang
+  // kepicu 429 dari operasi normal doang.
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => String(req.body?.source || ipKeyGenerator(req.ip)),
@@ -104,7 +132,7 @@ router.post("/", requireSyncKey, async (req, res) => {
     logRejected(source, type, "type tidak dikenal");
     return res.status(400).json({
       status: "error",
-      message: `type harus salah satu dari: ${VALID_TYPES.join(", ")}, atau monthly-summary-YYYY-M`,
+      message: `type harus salah satu dari: ${VALID_TYPES.join(", ")}, atau monthly-summary-YYYY-M / line-range-breakdown-YYYY-M / dashboard-daily-trend-YYYY-M / dashboard-monthly-summary-YYYY-M / dashboard-summary-all-daily-YYYY-MM-DD`,
     });
   }
   if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) {
@@ -116,7 +144,16 @@ router.post("/", requireSyncKey, async (req, res) => {
     return res.status(400).json({ status: "error", message: "data wajib diisi" });
   }
 
-  const result = await savePush(source, type, timestamp, data);
+  let result;
+  try {
+    result = await savePush(source, type, timestamp, data);
+  } catch (err) {
+    // Jaga-jaga lapis kedua — savePush() sendiri udah nangkep errornya,
+    // tapi ini biar POST handler ini gak PERNAH ninggalin unhandled
+    // rejection ke Express walau ada bug lain yang belum ketauan.
+    console.error(`SYNC/POST UNCAUGHT (${source}/${type}):`, err.message);
+    return res.status(500).json({ status: "error", message: "Gagal simpan data push" });
+  }
   if (!result.ok) {
     console.error(`SYNC/POST ERROR (${source}/${type}):`, result.reason);
     return res.status(500).json({ status: "error", message: "Gagal simpan data push" });
@@ -148,16 +185,25 @@ router.get("/status", async (_req, res) => {
         });
       }
     }
-    // monthly-summary type-nya per-bulan ("monthly-summary-2026-7"), jadi
-    // dicari via prefix, bukan di-loop kayak VALID_TYPES di atas.
-    const latestMonthly = await getLatestPushByPrefix(source, "monthly-summary-", Infinity);
-    if (latestMonthly) {
-      rows.push({
-        source,
-        type: latestMonthly.type,
-        received_at: latestMonthly.received_at,
-        age_ms: Date.now() - new Date(latestMonthly.received_at).getTime(),
-      });
+    // Type yang di-key per-bulan/per-hari (bukan statis), jadi dicari
+    // via prefix satu-satu, bukan di-loop kayak VALID_TYPES di atas.
+    const keyedPrefixes = [
+      "monthly-summary-",
+      "line-range-breakdown-",
+      "dashboard-daily-trend-",
+      "dashboard-monthly-summary-",
+      "dashboard-summary-all-daily-",
+    ];
+    for (const prefix of keyedPrefixes) {
+      const latest = await getLatestPushByPrefix(source, prefix, Infinity);
+      if (latest) {
+        rows.push({
+          source,
+          type: latest.type,
+          received_at: latest.received_at,
+          age_ms: Date.now() - new Date(latest.received_at).getTime(),
+        });
+      }
     }
   }
   res.json({ status: "ok", configured: true, sources: rows });

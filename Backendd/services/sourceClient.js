@@ -25,6 +25,11 @@ const PATH_TO_PUSH_TYPE = {
   "/summary": "summary",
   "/monthly-trend": "monthly-trend",
   "/range-trend": "range-trend",
+  // "Dashboard Utama" (dibuka dari Master Hub buat SGP/Systech) — 2 dari
+  // 5 endpoint-nya gak ada parameter (statis, kayak "/summary"), sisanya
+  // (year/month/date) ditangani manual di getPushTypeForPath() di bawah.
+  "/dashboard/summary-all": "dashboard-summary-all",
+  "/dashboard/summary-by-tempat": "dashboard-summary-by-tempat",
 };
 
 function getPushTypeForPath(path) {
@@ -36,6 +41,39 @@ function getPushTypeForPath(path) {
     // Gak ada year/month di query -> jangan asal fallback, biar aman.
     if (!year || !month) return null;
     return `monthly-summary-${year}-${month}`;
+  }
+  if (base === "/line-range-breakdown") {
+    // Sama alasannya kayak /monthly-summary di atas: gak masuk mapping
+    // statis karena identitas type-nya ikut parameter (start), bukan cuma
+    // nama path. Frontend SELALU minta 1 bulan penuh (tgl 1 s.d. akhir
+    // bulan — lihat BreakdownTempat.jsx monthRange()), jadi year-month
+    // cukup diambil dari `start` (format YYYY-MM-DD).
+    const params = new URLSearchParams(query);
+    const start = params.get("start") || "";
+    const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(start);
+    if (!match) return null;
+    const [, year, monthPadded] = match;
+    return `line-range-breakdown-${year}-${Number(monthPadded)}`;
+  }
+  if (base === "/dashboard/daily-trend" || base === "/dashboard/monthly-summary") {
+    const params = new URLSearchParams(query);
+    const year = params.get("year");
+    const month = params.get("month");
+    if (!year || !month) return null;
+    const kind = base === "/dashboard/daily-trend" ? "daily-trend" : "monthly-summary";
+    return `dashboard-${kind}-${year}-${month}`;
+  }
+  if (base === "/dashboard/summary-all-daily") {
+    // Beda sama /summary yang defaultnya "shift berjalan" kalau ?date=
+    // kosong — di sini kalau ?date= kosong sengaja gak di-fallback (return
+    // null), soalnya push-sync CUMA nyimpen HARI BERJALAN (lihat
+    // pushSyncService.js), jadi gak ada cara mastiin "hari ini WIB versi
+    // Master" sama persis kayak "hari ini versi push terakhir SGP/Systech"
+    // tanpa tanggal eksplisit dari caller.
+    const params = new URLSearchParams(query);
+    const date = params.get("date") || "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    return `dashboard-summary-all-daily-${date}`;
   }
   return PATH_TO_PUSH_TYPE[base] || null;
 }
@@ -67,14 +105,42 @@ function isClosedMonth(year, month) {
   return year < curYear || (year === curYear && month < curMonth);
 }
 
+// Sama alasannya kayak isClosedMonth di atas, versi HARI — dipakai buat
+// "dashboard-summary-all-daily-YYYY-MM-DD" (push-sync cuma nyimpen HARI
+// BERJALAN, jadi begitu hari itu lewat, row-nya gak di-refresh lagi
+// walau datanya masih valid/final selamanya).
+function isClosedDay(dateStr) {
+  const wib = new Date(Date.now() + 7 * 3600 * 1000);
+  const todayStr = `${wib.getUTCFullYear()}-${String(wib.getUTCMonth() + 1).padStart(2, "0")}-${String(wib.getUTCDate()).padStart(2, "0")}`;
+  return dateStr < todayStr;
+}
+
+// Berlaku buat semua type yang di-key per year-month ("monthly-summary",
+// "line-range-breakdown", "dashboard-daily-trend", "dashboard-monthly-
+// summary") — kesemuanya cuma dipush buat BULAN BERJALAN (lihat
+// pushSyncService.js), jadi begitu bulan tutup, row terakhirnya gak akan
+// di-refresh lagi selamanya walau isinya masih valid/final.
 function resolveMaxAgeForPushType(pushType) {
-  const match = /^monthly-summary-(\d+)-(\d+)$/.exec(pushType);
-  if (match) {
-    const [, y, m] = match;
+  const monthMatch =
+    /^(?:monthly-summary|line-range-breakdown|dashboard-daily-trend|dashboard-monthly-summary)-(\d+)-(\d+)$/.exec(
+      pushType,
+    );
+  if (monthMatch) {
+    const [, y, m] = monthMatch;
     if (isClosedMonth(Number(y), Number(m))) {
       return Infinity; // bulan udah tutup, data final, gak akan di-push ulang lagi
     }
+    return PUSH_FALLBACK_MAX_AGE_MS;
   }
+
+  const dayMatch = /^dashboard-summary-all-daily-(\d{4}-\d{2}-\d{2})$/.exec(pushType);
+  if (dayMatch) {
+    if (isClosedDay(dayMatch[1])) {
+      return Infinity; // hari udah lewat, data final, gak akan di-push ulang lagi
+    }
+    return PUSH_FALLBACK_MAX_AGE_MS;
+  }
+
   return PUSH_FALLBACK_MAX_AGE_MS;
 }
 
@@ -222,10 +288,48 @@ function fetchSourceLineRangeBreakdown(sourceKey, source, start, end) {
   );
 }
 
+// 5 fungsi di bawah ini buat isi "Dashboard Utama" pas dibuka lewat Master
+// Hub buat lokasi SGP/Systech (lihat routes/master.js /dashboard/*).
+function fetchSourceDashboardSummaryAll(sourceKey, source) {
+  return callExternal(sourceKey, source, "/dashboard/summary-all");
+}
+
+function fetchSourceDashboardSummaryByTempat(sourceKey, source) {
+  return callExternal(sourceKey, source, "/dashboard/summary-by-tempat");
+}
+
+function fetchSourceDashboardSummaryAllDaily(sourceKey, source, date) {
+  const path = date
+    ? `/dashboard/summary-all-daily?date=${date}`
+    : "/dashboard/summary-all-daily";
+  return callExternal(sourceKey, source, path);
+}
+
+function fetchSourceDashboardDailyTrend(sourceKey, source, year, month) {
+  return callExternal(
+    sourceKey,
+    source,
+    `/dashboard/daily-trend?year=${year}&month=${month}`,
+  );
+}
+
+function fetchSourceDashboardMonthlySummary(sourceKey, source, year, month) {
+  return callExternal(
+    sourceKey,
+    source,
+    `/dashboard/monthly-summary?year=${year}&month=${month}`,
+  );
+}
+
 module.exports = {
   fetchSourceSummary,
   fetchSourceTrend,
   fetchSourceMonthlySummary,
   fetchSourceRangeTrend,
   fetchSourceLineRangeBreakdown,
+  fetchSourceDashboardSummaryAll,
+  fetchSourceDashboardSummaryByTempat,
+  fetchSourceDashboardSummaryAllDaily,
+  fetchSourceDashboardDailyTrend,
+  fetchSourceDashboardMonthlySummary,
 };

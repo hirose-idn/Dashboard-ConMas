@@ -172,28 +172,42 @@ function LineRow({ l, onSelect }) {
     l.output_plan > 0 ? Math.round((l.output_actual / l.output_plan) * 100) : 0;
   const pctColor = pct >= 90 ? C.green : pct >= 70 ? C.orange : C.red;
   const oeeColor = l.oee >= 85 ? C.green : l.oee >= 70 ? C.orange : C.red;
+  const clickable = Boolean(onSelect);
+  // Fallback buat data LAMA (push-sync dari instance yang belum ke-upgrade,
+  // cuma punya line_not_running boolean, belom ada line_status) — daripada
+  // salah kebaca "Running", collapse balik ke 2-state lama.
+  const status = l.line_status || (l.line_not_running ? "not_running" : "running");
 
   return (
     <tr
-      onClick={() => onSelect(l.line_code)}
+      onClick={clickable ? () => onSelect(l.line_code) : undefined}
       style={{
-        cursor: "pointer",
+        cursor: clickable ? "pointer" : "default",
         borderTop: `1px solid ${C.border}`,
         transition: "background .15s",
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = C.blueDim)}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      onMouseEnter={
+        clickable ? (e) => (e.currentTarget.style.background = C.blueDim) : undefined
+      }
+      onMouseLeave={
+        clickable ? (e) => (e.currentTarget.style.background = "transparent") : undefined
+      }
     >
       <td style={{ ...td(), color: C.blue, fontWeight: 700 }}>{l.line_code}</td>
       <td style={td()}>
         <span
           style={{
-            color: l.line_not_running ? C.red : C.green,
+            color:
+              status === "waiting" ? C.orange : status === "not_running" ? C.red : C.green,
             fontSize: 11,
             fontWeight: 600,
           }}
         >
-          {l.line_not_running ? "✕ Tidak Running" : "✓ Running"}
+          {status === "waiting"
+            ? "… Menunggu Data"
+            : status === "not_running"
+              ? "✕ Tidak Running"
+              : "✓ Running"}
         </span>
       </td>
       <td style={{ ...td(), color: C.text }}>{fmt(l.output_plan)}</td>
@@ -587,7 +601,14 @@ function DailyTrendChart({ days }) {
 // ─────────────────────────────────────────────────────────────
 //  MASTER DASHBOARD
 // ─────────────────────────────────────────────────────────────
-export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
+export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat }) {
+  // Dibuka dari Master Hub buat lokasi SGP/Systech (bukan Internal browsing
+  // dirinya sendiri) -> semua fetch di bawah harus lewat proxy /api/master/
+  // dashboard/* (Master gak punya akses ke DB subcont), BUKAN /api/dashboard/
+  // lokal. Sama pola persis kayak isRemoteViaMaster di BreakdownTempat.jsx.
+  const isRemoteViaMaster =
+    IS_INTERNAL_INSTANCE && tempat && tempat.toLowerCase() !== "internal";
+  const remoteSourceKey = tempat ? tempat.toLowerCase() : null;
   // Dulu Master Dashboard Utama SELALU MAKSA tema jadi light pas mount
   // (alasan lama: nyaman buat manajemen/orang tua), lalu balik ke preferensi
   // asal pas keluar. Sekarang itu DIHAPUS — semua halaman (Hub, Breakdown
@@ -626,20 +647,28 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
   const [rankingLines, setRankingLines] = useState([]);
   const [rankingLoading, setRankingLoading] = useState(false);
 
-  const fetchRanking = useCallback(async (date) => {
-    setRankingLoading(true);
-    try {
-      const res = await fetch(
-        `${BASE_URL}/api/dashboard/summary-all-daily?date=${date}`,
-      );
-      const json = await res.json();
-      if (json.success) setRankingLines(json.data || []);
-    } catch {
-      // Diemin — panel ranking cuma gak keupdate, dashboard tetap jalan.
-    } finally {
-      setRankingLoading(false);
-    }
-  }, []);
+  const fetchRanking = useCallback(
+    async (date) => {
+      setRankingLoading(true);
+      try {
+        const url = isRemoteViaMaster
+          ? `${BASE_URL}/api/master/dashboard/summary-all-daily?source=${remoteSourceKey}&date=${date}`
+          : `${BASE_URL}/api/dashboard/summary-all-daily?date=${date}`;
+        const res = await fetch(url);
+        const json = await res.json();
+        if (isRemoteViaMaster) {
+          if (json.status === "ok") setRankingLines(json.data || []);
+        } else if (json.success) {
+          setRankingLines(json.data || []);
+        }
+      } catch {
+        // Diemin — panel ranking cuma gak keupdate, dashboard tetap jalan.
+      } finally {
+        setRankingLoading(false);
+      }
+    },
+    [isRemoteViaMaster, remoteSourceKey],
+  );
 
   useEffect(() => {
     fetchRanking(rankingDate);
@@ -659,32 +688,51 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
 
   const fetchData = useCallback(async () => {
     try {
-      const [r1, r2, r3, r4] = await Promise.all([
-        fetch(`${BASE_URL}/api/dashboard/summary-by-tempat`),
-        fetch(`${BASE_URL}/api/dashboard/summary-all`),
-        fetch(
-          `${BASE_URL}/api/dashboard/daily-trend?year=${trendYearRef.current}&month=${trendMonthRef.current}`,
-        ),
-        fetch(
-          `${BASE_URL}/api/dashboard/monthly-summary?year=${trendYearRef.current}&month=${trendMonthRef.current}`,
-        ),
-      ]);
+      const y = trendYearRef.current;
+      const m = trendMonthRef.current;
+      const urls = isRemoteViaMaster
+        ? [
+            `${BASE_URL}/api/master/dashboard/summary-by-tempat?source=${remoteSourceKey}`,
+            `${BASE_URL}/api/master/dashboard/summary-all?source=${remoteSourceKey}`,
+            `${BASE_URL}/api/master/dashboard/daily-trend?source=${remoteSourceKey}&year=${y}&month=${m}`,
+            `${BASE_URL}/api/master/dashboard/monthly-summary?source=${remoteSourceKey}&year=${y}&month=${m}`,
+          ]
+        : [
+            `${BASE_URL}/api/dashboard/summary-by-tempat`,
+            `${BASE_URL}/api/dashboard/summary-all`,
+            `${BASE_URL}/api/dashboard/daily-trend?year=${y}&month=${m}`,
+            `${BASE_URL}/api/dashboard/monthly-summary?year=${y}&month=${m}`,
+          ];
+      const [r1, r2, r3, r4] = await Promise.all(urls.map((u) => fetch(u)));
       const j1 = await r1.json();
       const j2 = await r2.json();
       const j3 = await r3.json();
       const j4 = await r4.json();
-      if (j1.success) setByTempat(j1.data || []);
-      if (j2.success) setAllLines(j2.data || []);
-      if (j3.success) setDailyDays(j3.data || []);
-      if (j4.success) setMonthlySummary(j4.data || null);
+
+      // Bentuk response proxy beda dikit dari endpoint lokal — lihat
+      // routes/master.js: { source, label, status, data } vs lokal
+      // { success, data }. Lihat juga BreakdownTempat.jsx isRemoteViaMaster.
+      if (isRemoteViaMaster) {
+        if (j1.status === "ok") setByTempat(j1.data || []);
+        if (j2.status === "ok") setAllLines(j2.data || []);
+        if (j3.status === "ok") setDailyDays(j3.data || []);
+        if (j4.status === "ok") setMonthlySummary(j4.data || null);
+        const anyFailed = [j1, j2, j3, j4].some((j) => j.status !== "ok");
+        setError(anyFailed ? (j1.message || j2.message || j3.message || j4.message || "Sebagian data gagal diambil dari subcont") : null);
+      } else {
+        if (j1.success) setByTempat(j1.data || []);
+        if (j2.success) setAllLines(j2.data || []);
+        if (j3.success) setDailyDays(j3.data || []);
+        if (j4.success) setMonthlySummary(j4.data || null);
+        setError(null);
+      }
       setLastUpdate(new Date());
-      setError(null);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isRemoteViaMaster, remoteSourceKey]);
 
   useEffect(() => {
     fetchData();
@@ -748,7 +796,12 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
         rankingLinesWithData.length,
       )
       : 0;
-  const companyRunning = rankingLines.filter((l) => !l.line_not_running).length;
+  // Ketat pake status "running" doang — line yang "Menunggu Data" (belum
+  // confirmed jalan, tapi juga belum confirmed mati) SENGAJA gak dihitung
+  // Running di sini, biar angka "X/Y Running" gak menyesatkan.
+  const companyRunning = rankingLines.filter(
+    (l) => (l.line_status || (l.line_not_running ? "not_running" : "running")) === "running",
+  ).length;
   const companyTotal = rankingLines.length;
 
   // ── Agregasi stoptime 5M dari allLines ──
@@ -837,7 +890,11 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
               </button>
               <span style={{ color: C.border }}>›</span>
               <span style={{ fontSize: 12, color: C.textDim }}>
-                {IS_INTERNAL_INSTANCE ? "internal" : TEMPAT_LABEL}
+                {isRemoteViaMaster
+                  ? remoteSourceKey
+                  : IS_INTERNAL_INSTANCE
+                    ? "internal"
+                    : TEMPAT_LABEL}
               </span>
             </div>
             <h1
@@ -849,12 +906,14 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
                 letterSpacing: 1,
               }}
             >
-              MASTER DASHBOARD
+              MASTER DASHBOARD{isRemoteViaMaster ? ` — ${tempat.toUpperCase()}` : ""}
             </h1>
             <p style={{ fontSize: 12, color: C.textDim, marginTop: 3 }}>
-              {IS_INTERNAL_INSTANCE
-                ? "Real-Time Production · all locations"
-                : `Real-Time Production · ${TEMPAT_LABEL}`}
+              {isRemoteViaMaster
+                ? `Real-Time Production · ${tempat} (via Master Hub)`
+                : IS_INTERNAL_INSTANCE
+                  ? "Real-Time Production · all locations"
+                  : `Real-Time Production · ${TEMPAT_LABEL}`}
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -923,7 +982,10 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
           </div>
         </div>
 
-        {IS_INTERNAL_INSTANCE && (
+        {/* Bar status 3 lokasi ini gak relevan pas lagi liat Dashboard Utama
+            SATU lokasi doang (dibuka lewat Hub buat SGP/Systech) — cuma
+            ditampilin pas beneran di Master Dashboard Utama gabungan. */}
+        {IS_INTERNAL_INSTANCE && !isRemoteViaMaster && (
           <SourceStatusBar sources={sourceStatus} loading={loading} />
         )}
 
@@ -1755,7 +1817,17 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown }) {
                         );
                       }
                       return filteredLines.map((l) => (
-                        <LineRow key={l.line_code} l={l} onSelect={onSelect} />
+                        <LineRow
+                          key={l.line_code}
+                          l={l}
+                          // Drill-down per-line (PCBDashboard) itu 100% LOKAL
+                          // (fetch /api/dashboard di instance ini sendiri,
+                          // gak ada proxy/remote sama sekali) — kalau tetep
+                          // dibolehin klik pas lagi liat dashboard SGP/Systech
+                          // via Hub, bakal nyasar nampilin data KOSONG/SALAH
+                          // punya Master. Makanya di-nonaktifin kalau remote.
+                          onSelect={isRemoteViaMaster ? null : onSelect}
+                        />
                       ));
                     })()}
                   </tbody>

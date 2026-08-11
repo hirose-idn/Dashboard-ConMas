@@ -286,6 +286,76 @@ router.get("/line-range-breakdown", async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  GET /api/external/dashboard/* — proxy READ-ONLY ke 5 endpoint
+//  /api/dashboard/* instance ini SENDIRI (summary-all, summary-by-tempat,
+//  summary-all-daily, daily-trend, monthly-summary), dipakai buat isi
+//  halaman "Dashboard Utama" pas dibuka dari Master Hub buat lokasi
+//  SGP/Systech (lihat routes/master.js). Kenapa loopback HTTP, bukan
+//  import fungsi langsung: logic 5 endpoint itu masih nempel di route
+//  handler routes/dashboard.js (belum di-extract ke service function
+//  kayak summaryService.js), jadi loopback ke diri sendiri jauh lebih
+//  aman daripada refactor file 1000+ baris itu cuma buat reuse.
+//
+//  Dipakai jalur PULL (kalau nanti kredensial SGP_API_URL/SYSTECH_API_URL
+//  diisi beneran) DAN sumber data buat push-sync (pushSyncService.js
+//  loopback ke sini juga) — satu implementasi, dua pemakai.
+// ─────────────────────────────────────────────────────────────
+const axios = require("axios");
+const LOCAL_BASE_URL = `http://localhost:${process.env.PORT || 3000}`;
+
+async function proxyLocalDashboard(res, path, query = {}) {
+  try {
+    const qs = new URLSearchParams(query).toString();
+    const url = `${LOCAL_BASE_URL}/api/dashboard/${path}${qs ? `?${qs}` : ""}`;
+    const r = await axios.get(url, { timeout: 10000 });
+    if (!r.data || r.data.success !== true) {
+      return res.status(200).json({
+        status: "error",
+        source: SOURCE_NAME,
+        timestamp: new Date().toISOString(),
+        message: r.data?.message || "Gagal ambil data lokal",
+      });
+    }
+    res.json({
+      status: "ok",
+      source: SOURCE_NAME,
+      timestamp: new Date().toISOString(),
+      data: r.data.data,
+    });
+  } catch (err) {
+    console.error(`EXTERNAL/DASHBOARD-${path.toUpperCase()} ERROR:`, err.message);
+    res.status(200).json({
+      status: "error",
+      source: SOURCE_NAME,
+      timestamp: new Date().toISOString(),
+      message: "Gagal ambil data — lihat log server",
+    });
+  }
+}
+
+router.get("/dashboard/summary-all", (_req, res) =>
+  proxyLocalDashboard(res, "summary-all"),
+);
+router.get("/dashboard/summary-by-tempat", (_req, res) =>
+  proxyLocalDashboard(res, "summary-by-tempat"),
+);
+router.get("/dashboard/summary-all-daily", (req, res) =>
+  proxyLocalDashboard(res, "summary-all-daily", { date: req.query.date || "" }),
+);
+router.get("/dashboard/daily-trend", (req, res) =>
+  proxyLocalDashboard(res, "daily-trend", {
+    year: req.query.year || "",
+    month: req.query.month || "",
+  }),
+);
+router.get("/dashboard/monthly-summary", (req, res) =>
+  proxyLocalDashboard(res, "monthly-summary", {
+    year: req.query.year || "",
+    month: req.query.month || "",
+  }),
+);
+
+// ─────────────────────────────────────────────────────────────
 //  GET /api/external/health — dicek Master sebelum/tanpa narik summary
 // ─────────────────────────────────────────────────────────────
 router.get("/health", async (_req, res) => {

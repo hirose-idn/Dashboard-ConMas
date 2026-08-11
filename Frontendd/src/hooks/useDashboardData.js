@@ -27,6 +27,7 @@ const INITIAL_STATE = {
   stoptime_menit: 0,
   hourly: [],
   line_not_running: false,
+  line_status: "running",
   // ── Mock ──────────────────────────────────────────
   ...MOCK_DATA,
   personnel: {
@@ -125,6 +126,8 @@ export default function useDashboardData(lineCode) {
         hourly: d.hourly || [],
         shift: d.shift || null,
         line_not_running: Boolean(d.line_not_running),
+        // Fallback buat backend LAMA yang belum ngirim line_status.
+        line_status: d.line_status || (d.line_not_running ? "not_running" : "running"),
         availability: {
           operator: d.availability_operator ?? null, // FIX: sebelumnya mock ("Bekidoritsu"), sekarang dari backend (stoptime_man vs stoptime_plan)
           mesin: d.oee ?? null, // OEE dari DB (cluster_1_85_n)

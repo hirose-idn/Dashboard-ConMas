@@ -101,7 +101,7 @@ export default function PCBDashboard({ line }) {
           />
         </div>
 
-        {d.line_not_running && (
+        {d.line_status === "not_running" && (
           <div
             style={{
               position: "fixed",
@@ -130,6 +130,30 @@ export default function PCBDashboard({ line }) {
             <div style={{ fontSize: 20, color: C.textDim, letterSpacing: "0.05em" }}>
               Line {d.line || "—"} · {d.shift || "—"} · belum ada data masuk lebih dari 1 jam
             </div>
+          </div>
+        )}
+        {/* "waiting" (row shift blm ada tapi masih wajar, awal shift) SENGAJA
+            gak ditampilin full-screen alarm kayak "not_running" — biar gak
+            nge-alarm-in operator/supervisor tiap ganti shift padahal itu
+            wajar (setup/serah-terima/dll). Cukup badge kecil aja biar tetep
+            keinfo tanpa bikin panik. */}
+        {d.line_status === "waiting" && (
+          <div
+            style={{
+              position: "fixed",
+              top: 16,
+              right: 16,
+              background: `${C.orange}22`,
+              border: `1px solid ${C.orange}`,
+              color: C.orange,
+              fontSize: 13,
+              fontWeight: 700,
+              padding: "6px 14px",
+              borderRadius: 20,
+              zIndex: 999,
+            }}
+          >
+            … Menunggu Data Shift
           </div>
         )}
       </div>
