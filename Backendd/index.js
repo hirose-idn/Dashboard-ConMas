@@ -25,7 +25,11 @@ const PORT = process.env.PORT || 3000;
 
 // ── Middleware ──────────────────────────────────────────────
 app.use(cors());
-app.use(express.json());
+// Default express.json() cuma 100kb — kekecilan buat payload push-sync
+// (SGP/Systech ngirim gabungan data dashboard + line-range-breakdown
+// dalam 1 request ke /api/sync), makanya kena PayloadTooLargeError.
+// Dinaikin ke 10mb, aman buat jenis payload JSON kayak gini.
+app.use(express.json({ limit: "10mb" }));
 
 // ── Static — foto personel ─────────────────────────────────
 // Akses via: http://localhost:5000/foto/<NIK>.jpg

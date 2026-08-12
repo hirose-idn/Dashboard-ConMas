@@ -109,32 +109,136 @@ function setLiburDates({ year, month, tempat, liburDates }) {
   return getEntry(year, month, tempat);
 }
 
-// Berapa hari kerja yang UDAH LEWAT s.d. HARI INI (WIB) — PASTI, dihitung
-// tanggal beneran (bukan estimasi lagi).
-//   - Bulan yang diliat < bulan berjalan -> udah kelar semua (= workingDays penuh)
-//   - Bulan yang diliat > bulan berjalan -> belum mulai (0)
-//   - Bulan yang diliat = bulan berjalan -> hitung tanggal 1 s.d. HARI INI
-function getElapsedWorkingDays(year, month, liburDates) {
+// ============================================================================
+// DAILY TARGET PACING — v2 (hourly bucket, shift-ownership aware)
+// ============================================================================
+// Ganti total pendekatan lama (yang motong shift malam di tengah malam /
+// pembagi "17 jam" & "24 jam"). Sekarang:
+//
+//   SUBCONT (SGP/Systech): kalender 24 jam POLOS, GAK pakai shift sama
+//   sekali. Progress = jam yang UDAH PENUH LEWAT hari ini / 24.
+//
+//   INTERNAL (Hirose): shift-aware. Shift 1 = 07:00–16:00 (9 jam), Shift
+//   2 = 22:00–07:00 BESOK (9 jam), total 18 jam. Shift malam itu MILIK
+//   TANGGAL SAAT DIA MULAI — jadi jam 00:00–06:59 pada tanggal D itu
+//   sebenernya masih lanjutan target tanggal D-1 (BUKAN awal target D).
+//   Tanggal D baru mulai jalan (progress 0%) persis jam 07:00.
+//
+// Kedua-duanya pakai HOURLY BUCKET: target cuma naik sekali tiap jam
+// PENUH lewat (misal jam 10:15 s.d 10:59 pakai posisi jam 10, baru naik
+// pas 11:00) — BUKAN interpolasi menit real-time.
+// ============================================================================
+
+// Ambil { year, month, day, hour } versi WIB (Asia/Jakarta, UTC+7) dari
+// waktu sekarang — SENGAJA pakai trik "+7 jam lalu baca getUTC*()" biar
+// hasilnya PASTI WIB, gak peduli timezone server jalan di mana (UTC,
+// local Indonesia, dst). `hour` di-floor (jam PENUH 0-23), sesuai aturan
+// hourly bucket — menit diabaikan.
+function nowWIB() {
   const wib = new Date(Date.now() + 7 * 3600 * 1000);
-  const curYear = wib.getUTCFullYear();
-  const curMonth = wib.getUTCMonth() + 1;
-  const curDay = wib.getUTCDate();
+  return {
+    year: wib.getUTCFullYear(),
+    month: wib.getUTCMonth() + 1,
+    day: wib.getUTCDate(),
+    hour: wib.getUTCHours(), // 0-23, integer (menit sengaja dibuang)
+  };
+}
 
+// Tanggal (Date, UTC-anchored biar aman dibandingin) mundur/maju N hari
+// dari {year,month,day}.
+function shiftDate(year, month, day, deltaDays) {
+  const d = new Date(Date.UTC(year, month - 1, day));
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+// Bandingin 2 tanggal {year,month,day} -> -1 (a<b), 0 (sama), 1 (a>b).
+function compareDate(a, b) {
+  if (a.year !== b.year) return a.year < b.year ? -1 : 1;
+  if (a.month !== b.month) return a.month < b.month ? -1 : 1;
+  if (a.day !== b.day) return a.day < b.day ? -1 : 1;
+  return 0;
+}
+
+// ---- SUBCONT (SGP/Systech): kalender 24 jam, gak ada shift, gak ada freeze.
+function subcontProgress(hour) {
+  const completed = Math.max(0, Math.min(24, Math.floor(hour)));
+  return completed / 24;
+}
+
+// ---- INTERNAL (Hirose): shift-aware, 18 jam total, hourly bucket.
+// Return { dateOffsetDays, progress }:
+//   dateOffsetDays = 0   -> activeTargetDate = HARI INI
+//   dateOffsetDays = -1  -> activeTargetDate = KEMARIN (masih ekor shift 2 kemarin)
+function internalProgressForHour(hour) {
+  const h = Math.max(0, Math.min(23, Math.floor(hour)));
+  if (h >= 7 && h <= 15) {
+    // Shift 1 (07:00-16:00) sedang jalan -> completed 0..8
+    return { dateOffsetDays: 0, progress: (h - 7) / 18 };
+  }
+  if (h >= 16 && h <= 21) {
+    // Break antar shift (16:00-22:00) -> FREEZE di 50% (9/18)
+    return { dateOffsetDays: 0, progress: 9 / 18 };
+  }
+  if (h >= 22 && h <= 23) {
+    // Shift 2 (22:00-24:00) baru mulai -> completed 9..10
+    return { dateOffsetDays: 0, progress: (h - 13) / 18 };
+  }
+  // h 0..6 -> masih ekor Shift 2 KEMARIN (22:00 kemarin - 07:00 hari ini)
+  return { dateOffsetDays: -1, progress: (h + 11) / 18 };
+}
+
+// activeTargetDate = tanggal yang target-nya LAGI JALAN sekarang, + berapa
+// persen progress-nya. Ini yang jadi acuan tunggal buat agregasi bulanan
+// di bawah — gak peduli tempat-nya subcont atau internal, keduanya
+// dibungkus jadi bentuk yang sama: { date: {year,month,day}, progress }.
+function getActiveTarget(tempat) {
+  const now = nowWIB();
+  const isInternal = tempat === "internal";
+
+  if (!isInternal) {
+    // SGP/Systech: activeTargetDate SELALU hari ini (gak ada shift-ownership).
+    return { date: { year: now.year, month: now.month, day: now.day }, progress: subcontProgress(now.hour) };
+  }
+
+  const { dateOffsetDays, progress } = internalProgressForHour(now.hour);
+  const date = dateOffsetDays === 0
+    ? { year: now.year, month: now.month, day: now.day }
+    : shiftDate(now.year, now.month, now.day, dateOffsetDays);
+  return { date, progress };
+}
+
+// Berapa "hari kerja" yang UDAH LEWAT dalam bulan `year`/`month` yang
+// diminta, dalam satuan pecahan (fractional working-day units) — dipakai
+// buat `targetHariIni = dailyTarget * elapsedWorkingDays` di executive.js.
+//
+// Aturan (final, sesuai spec):
+//   tanggal < activeTargetDate  -> full 1 (0 kalau tanggal itu libur)
+//   tanggal == activeTargetDate -> `progress` (0 kalau activeTargetDate libur)
+//   tanggal > activeTargetDate  -> 0
+//
+// Perbandingan tanggal PAKAI TANGGAL LENGKAP (year+month+day), jadi kasus
+// lintas-bulan (activeTargetDate di bulan lain dari `year`/`month` yang
+// diminta) otomatis kebereskan TANPA branch khusus:
+//   - activeTargetDate di bulan SEBELUMNYA dari yang diminta -> semua
+//     tanggal di bulan yang diminta > activeTargetDate -> hasil 0 semua.
+//   - activeTargetDate di bulan SESUDAHNYA dari yang diminta (liat bulan
+//     lampau) -> semua tanggal < activeTargetDate -> full semua (workingDays).
+function getElapsedWorkingDays(year, month, liburDates, tempat) {
   const totalDays = daysInMonth(year, month);
-  const workingDays = Math.max(totalDays - (liburDates?.length || 0), 0);
-
-  if (year < curYear || (year === curYear && month < curMonth)) {
-    return workingDays; // bulan lampau
-  }
-  if (year > curYear || (year === curYear && month > curMonth)) {
-    return 0; // bulan depan, belum jalan
-  }
-
   const liburSet = new Set(liburDates || []);
+  const { date: activeDate, progress } = getActiveTarget(tempat);
+
   let elapsed = 0;
-  for (let d = 1; d <= Math.min(curDay, totalDays); d++) {
+  for (let d = 1; d <= totalDays; d++) {
+    const cmp = compareDate({ year, month, day: d }, activeDate);
     const dateStr = toDateStr(year, month, d);
-    if (!liburSet.has(dateStr)) elapsed++;
+    if (cmp < 0) {
+      if (!liburSet.has(dateStr)) elapsed += 1;
+    } else if (cmp === 0) {
+      if (!liburSet.has(dateStr)) elapsed += progress;
+    }
+    // cmp > 0 -> belum mulai, +0
   }
   return elapsed;
 }
@@ -147,4 +251,8 @@ module.exports = {
   getEntry,
   setLiburDates,
   getElapsedWorkingDays,
+  // di-export buat keperluan testing/debug boundary jam
+  getActiveTarget,
+  subcontProgress,
+  internalProgressForHour,
 };

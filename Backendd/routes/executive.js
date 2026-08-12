@@ -153,7 +153,7 @@ router.get("/month", async (req, res) => {
     for (const t of VALID_TEMPAT) {
       const targetRow = targetRows.find((r) => r.tempat === t);
       const calendar = getCalendarEntry(year, month, t);
-      const elapsedWorkingDays = getElapsedWorkingDays(year, month, calendar.liburDates);
+      const elapsedWorkingDays = getElapsedWorkingDays(year, month, calendar.liburDates, t);
       byTempat[t] = computeAchievement(targetRow?.target, actualByTempat[t], {
         workingDays: calendar.workingDays,
         elapsedWorkingDays,
