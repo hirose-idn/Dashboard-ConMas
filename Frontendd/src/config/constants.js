@@ -182,11 +182,5 @@ export const MOCK_DATA = {
     mesin: 82, // OEE — mock, belum ada row mapping dari ConMas
   },
 
-  // Preventive Maintenance — mock, isi dari DB kalau sudah ada
-  preventive_maintenance: {
-    weekly: { last: "08 JUN", next: "15 JUN" },
-    monthly: { last: "01 JUN", next: "01 JUL" },
-  },
-
   reject_detail: null,
 };

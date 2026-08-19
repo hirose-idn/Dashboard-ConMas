@@ -7,7 +7,9 @@ import { getTodayWIB } from "../config/utils";
 //    aktif + tanggal yg relevan (termasuk shift 2 lewat tengah malam),
 //    jadi FE gak perlu lagi logic getActiveShift() / cari row manual.
 // ✅ hourly udah ikut nempel di response /api/dashboard (gak perlu /trend lagi)
-// 🟡 reject_detail, preventive_maintenance → masih mock (lihat constants.js)
+// ✅ reject-detail sekarang live dari /api/dashboard/reject-detail
+//    (150 slot pasangan qty/nama defect, lihat REJECT_PAIRS di
+//    backend config/reportColumns.js)
 // ────────────────────────────────────────────────────────────
 
 const INITIAL_STATE = {
@@ -35,8 +37,7 @@ const INITIAL_STATE = {
     pj_teknis: { nama: null, no_karyawan: null, telp: null, foto: null },
     inspector: { nama: null, no_karyawan: null, telp: null, foto: null },
   },
-  reject_detail: MOCK_DATA.reject_detail,
-  preventive_maintenance: MOCK_DATA.preventive_maintenance,
+  reject_detail: null,
   // ── State ─────────────────────────────────────────
   lastRefresh: null,
   loading: true,
@@ -154,7 +155,6 @@ export default function useDashboardData(lineCode) {
           },
         },
         reject_detail: rejectDetailData,
-        preventive_maintenance: prev.preventive_maintenance,
         lastRefresh: new Date(),
         loading: false,
         error: null,

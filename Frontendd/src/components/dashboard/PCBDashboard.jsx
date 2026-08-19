@@ -97,7 +97,6 @@ export default function PCBDashboard({ line }) {
           <RightColumn
             schedule={d.schedule}
             reject_detail={d.reject_detail}
-            preventive_maintenance={d.preventive_maintenance}
           />
         </div>
 
