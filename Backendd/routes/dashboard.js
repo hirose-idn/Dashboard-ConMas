@@ -33,7 +33,7 @@ const { getAllLines, getLineConfig } = require("../utils/linesRegistry");
 //  atas soal getViewForTempat. Row 17/Line masih perlu dicek: form ConMas
 //  row itu field text/dropdown, atau ID numeric yang representasiin '41HR101'?)
 // ─────────────────────────────────────────────────────────────
-const { VIEW, COLS } = require("../config/reportColumns");
+const { VIEW, COLS, REJECT_PAIRS } = require("../config/reportColumns");
 
 // SLOTS & getLineRangeBreakdown sekarang di services/lineBreakdownService.js
 // (satu-satunya definisi, dipakai bareng sama endpoint di bawah + api-external.js).
@@ -403,15 +403,100 @@ router.get("/monthly", async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-//  GET /reject-detail?line=...&date=YYYY-MM-DD — belum ada kolom
-//  reject-per-jenis di DB, tetap return array kosong (FE jatuh ke
-//  default defect list). Parameter ?line= diterima buat konsistensi
-//  kontrak API begitu kolomnya udah ada nanti.
+//  GET /reject-detail?line=... — breakdown qty reject per nama
+//  defect, buat panel "Detail Reject" di kanan dashboard per-line.
+//
+//  Sumbernya REJECT_PAIRS (150 slot di config/reportColumns.js):
+//  form ConMas nyimpen tiap defect yg diinput sebagai pasangan
+//  kolom (qty numeric, nama text) di slot berurutan — BUKAN 1
+//  kolom tetap per jenis defect (makanya gak ada kolom "Bent Pins"
+//  dst secara eksplisit). Operator isi slot dari yg pertama; slot
+//  yg gak dipakai kosong (name null/"").
+//
+//  Row yang dipakai = row aktif yang SAMA persis kayak GET / (line +
+//  shift yang lagi berjalan/baru selesai, lewat pickActiveRow) —
+//  biar angka reject di panel ini nyambung sama shift yang lagi
+//  ditampilin di kartu-kartu utama, bukan shift lain/hari lain.
+//
+//  Agregasi per nama (bukan langsung per-slot) soalnya operator
+//  bisa aja nulis nama defect yang sama di lebih dari 1 slot dalam
+//  1 shift (nambah reject yang sama beberapa kali submit).
 // ─────────────────────────────────────────────────────────────
 router.get("/reject-detail", async (req, res) => {
-  const wib = new Date(Date.now() + 7 * 3600 * 1000);
-  const targetDate = req.query.date || wib.toISOString().slice(0, 10);
-  res.json({ success: true, date: targetDate, data: [] });
+  try {
+    const lineCode = (req.query.line || "").trim();
+    if (!lineCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Parameter ?line= wajib diisi.",
+      });
+    }
+
+    const lineConfig = await getLineConfig(lineCode);
+    if (!lineConfig) {
+      return res.status(404).json({
+        success: false,
+        message: `Line "${lineCode}" tidak ditemukan / nonaktif.`,
+      });
+    }
+
+    const wib = new Date(Date.now() + 7 * 3600 * 1000);
+    const yesterday = new Date(wib.getTime() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const todayStr = wib.toISOString().slice(0, 10);
+
+    const rejectSelects = REJECT_PAIRS.flatMap((p, i) => [
+      `${p.qty} AS r${i}_qty`,
+      `${p.name} AS r${i}_name`,
+    ]);
+
+    const query = `
+      SELECT
+        ${COLS.tanggal} AS tanggal,
+        ${COLS.shift} AS shift,
+        ${rejectSelects.join(",\n        ")}
+      FROM ${getViewForTempat(lineConfig.tempat)}
+      WHERE ${COLS.line} = $1
+        AND DATE(${COLS.tanggal}) IN ($2, $3)
+    `;
+
+    const result = await getPoolForTempat(lineConfig.tempat).query(query, [
+      lineCode,
+      todayStr,
+      yesterday,
+    ]);
+    const row = pickActiveRow(result.rows, wib, "shift");
+
+    if (!row) {
+      return res.json({ success: true, date: todayStr, data: [] });
+    }
+
+    // Agregasi qty per nama defect (skip slot kosong/nama null)
+    const agg = new Map();
+    REJECT_PAIRS.forEach((_, i) => {
+      const rawName = row[`r${i}_name`];
+      if (!rawName || !String(rawName).trim()) return;
+      const key = String(rawName).trim();
+      const qty = Number(row[`r${i}_qty`]) || 0;
+      agg.set(key, (agg.get(key) || 0) + qty);
+    });
+
+    const data = Array.from(agg.entries())
+      .map(([defect_name, qty]) => ({ defect_name, qty }))
+      .sort((a, b) => b.qty - a.qty);
+
+    const rowDate = row.tanggal
+      ? row.tanggal instanceof Date
+        ? row.tanggal.toISOString().slice(0, 10)
+        : String(row.tanggal).slice(0, 10)
+      : todayStr;
+
+    res.json({ success: true, date: rowDate, data });
+  } catch (err) {
+    console.error("REJECT-DETAIL ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────
