@@ -59,7 +59,15 @@ export const DARK = {
   // ke-hardcode, bukan ngikut `C`. Sekarang jadi token resmi biar ke-swap
   // otomatis pas ganti tema.
   inputBg: "#040d12",
-  rowAlt: "#040d1240",
+  // ⚠️ WAJIB solid (6-digit hex, TANPA alpha channel)! Sebelumnya
+  // "#040d1240" — 2 digit terakhir itu alpha ~25% opacity, bikin
+  // baris ganjil (yang pake rowAlt) jadi tembus pandang. Karena
+  // kolom kiri di breakdown table itu position:sticky, transparansi
+  // ini bikin konten kolom tanggal yang lagi discroll di baliknya
+  // numpuk kelihatan bareng teks sticky-nya = efek "berbayang".
+  // Warna ini hasil blend manual #040d12 25% di atas panel #091820,
+  // biar tetep solid tapi visual stripe-nya sama kayak sebelumnya.
+  rowAlt: "#08151c",
 };
 
 export const LIGHT = {

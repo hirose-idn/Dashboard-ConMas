@@ -687,7 +687,10 @@ export default function BreakdownTempat({ tempat, onSelect, onBack }) {
                     // "fixed" bikin lebar kolom BENERAN dipatuhi sesuai
                     // yang didefinisikan di STICKY_COLS.
                     tableLayout: "fixed",
-                    width: `${STICKY_TOTAL_WIDTH + dates.length * 100}px`,
+                    // Per-tanggal sekarang cuma 1 kolom (Actual aja, Plan
+                    // dibuang) makanya lebar per tanggal turun dari 100px
+                    // (2 kolom @50) jadi 70px (1 kolom).
+                    width: `${STICKY_TOTAL_WIDTH + dates.length * 70}px`,
                   }}
                 >
                   <thead>
@@ -715,7 +718,6 @@ export default function BreakdownTempat({ tempat, onSelect, onBack }) {
                       {dates.map((d) => (
                         <th
                           key={d}
-                          colSpan={2}
                           style={{
                             ...thStyle(),
                             textAlign: "center",
@@ -733,63 +735,15 @@ export default function BreakdownTempat({ tempat, onSelect, onBack }) {
                         </th>
                       ))}
                     </tr>
-                    <tr style={{ background: C.panelAlt }}>
-                      {STICKY_COLS.map((col, idx) => (
-                        <td
-                          key={col.key}
-                          style={{
-                            padding: "3px 10px",
-                            fontSize: 10,
-                            color: C.textMut,
-                            position: "sticky",
-                            left: stickyLeft(idx),
-                            zIndex: 3,
-                            background: C.panelAlt,
-                            borderRight:
-                              idx === STICKY_COLS.length - 1
-                                ? `2px solid ${C.borderBr}`
-                                : "none",
-                          }}
-                        >
-                          {idx === 0 ? "Identity" : ""}
-                        </td>
-                      ))}
-                      {dates.map((d) => (
-                        <React.Fragment key={d}>
-                          <td
-                            style={{
-                              padding: "3px 10px",
-                              fontSize: 10,
-                              color: C.textDim,
-                              borderLeft: `1px solid ${C.border}30`,
-                              background: noOutputDates.has(d)
-                                ? C.redDim
-                                : undefined,
-                            }}
-                          >
-                            Plan
-                          </td>
-                          <td
-                            style={{
-                              padding: "3px 10px",
-                              fontSize: 10,
-                              color: C.blue + "80",
-                              background: noOutputDates.has(d)
-                                ? C.redDim
-                                : undefined,
-                            }}
-                          >
-                            Actual
-                          </td>
-                        </React.Fragment>
-                      ))}
-                    </tr>
+                    {/* Sub-header "Plan/Actual" dihapus — sekarang per
+                        tanggal cuma nampilin Actual, jadi cukup 1 baris
+                        header (tanggal) aja, gak butuh baris kedua lagi. */}
                   </thead>
                   <tbody>
                     {filtered.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={STICKY_COLS.length + dates.length * 2}
+                          colSpan={STICKY_COLS.length + dates.length}
                           style={{
                             padding: 24,
                             textAlign: "center",
@@ -912,27 +866,20 @@ export default function BreakdownTempat({ tempat, onSelect, onBack }) {
                               const day = byDate[d];
                               const isNoOutput = noOutputDates.has(d);
                               const cellBg = isNoOutput ? C.redDim : rowBg;
+                              // Plan dibuang dari tampilan per-tanggal — cuma
+                              // Actual yang ditampilin (1 kolom per tanggal).
                               return (
-                                <React.Fragment key={d}>
-                                  <td
-                                    style={{
-                                      ...tdStyle(),
-                                      background: cellBg,
-                                      borderLeft: `1px solid ${C.border}20`,
-                                    }}
-                                  >
-                                    {day?.hasData ? fmt(day.plan) : "—"}
-                                  </td>
-                                  <td
-                                    style={{
-                                      ...tdStyle(),
-                                      background: cellBg,
-                                      color: C.text,
-                                    }}
-                                  >
-                                    {day?.hasData ? fmt(day.actual) : "—"}
-                                  </td>
-                                </React.Fragment>
+                                <td
+                                  key={d}
+                                  style={{
+                                    ...tdStyle(),
+                                    background: cellBg,
+                                    color: C.text,
+                                    borderLeft: `1px solid ${C.border}20`,
+                                  }}
+                                >
+                                  {day?.hasData ? fmt(day.actual) : "—"}
+                                </td>
                               );
                             })}
                           </tr>
