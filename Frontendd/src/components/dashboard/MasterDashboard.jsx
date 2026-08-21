@@ -167,7 +167,7 @@ function SourceStatusBar({ sources, loading }) {
 
 // ─── Accordion row per tempat ──────────────────────────────────
 // ─── Line Row (flat, dipake di Breakdown Line versi per-tempat) ──
-function LineRow({ l, onSelect }) {
+function LineRow({ l, onSelect, remoteSourceKey }) {
   const pct =
     l.output_plan > 0 ? Math.round((l.output_actual / l.output_plan) * 100) : 0;
   const pctColor = pct >= 90 ? C.green : pct >= 70 ? C.orange : C.red;
@@ -180,7 +180,9 @@ function LineRow({ l, onSelect }) {
 
   return (
     <tr
-      onClick={clickable ? () => onSelect(l.line_code) : undefined}
+      onClick={
+        clickable ? () => onSelect(l.line_code, remoteSourceKey) : undefined
+      }
       style={{
         cursor: clickable ? "pointer" : "default",
         borderTop: `1px solid ${C.border}`,
@@ -1820,13 +1822,16 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
                         <LineRow
                           key={l.line_code}
                           l={l}
-                          // Drill-down per-line (PCBDashboard) itu 100% LOKAL
-                          // (fetch /api/dashboard di instance ini sendiri,
-                          // gak ada proxy/remote sama sekali) — kalau tetep
-                          // dibolehin klik pas lagi liat dashboard SGP/Systech
-                          // via Hub, bakal nyasar nampilin data KOSONG/SALAH
-                          // punya Master. Makanya di-nonaktifin kalau remote.
-                          onSelect={isRemoteViaMaster ? null : onSelect}
+                          // Drill-down per-line (PCBDashboard) versi RINGKAS
+                          // sekarang bisa proxy lewat Master buat line SGP/
+                          // Systech (routes/master.js /dashboard/line-*,
+                          // lihat useDashboardData.js mode remote) — jadi
+                          // TIDAK di-nonaktifin lagi kayak sebelumnya, cukup
+                          // dikasih tau sumbernya via remoteSourceKey.
+                          onSelect={onSelect}
+                          remoteSourceKey={
+                            isRemoteViaMaster ? remoteSourceKey : undefined
+                          }
                         />
                       ));
                     })()}

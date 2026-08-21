@@ -321,6 +321,28 @@ function fetchSourceDashboardMonthlySummary(sourceKey, source, year, month) {
   );
 }
 
+// Drill-down 1 line spesifik (klik row di tabel Ranking Line pas lagi
+// liat Dashboard subcont via Master Hub) — versi RINGKAS (angka utama
+// doang, tanpa reject-detail/foto, lihat komentar di api-external.js).
+// Belum ada fallback push-sync buat 2 endpoint ini (pushSyncService.js
+// cuma push ringkasan agregat, bukan per-line — kalau nanti mau
+// ditambahin, perlu 1 job push per line aktif, lumayan banyak).
+function fetchSourceDashboardLineSummary(sourceKey, source, line) {
+  return callExternal(
+    sourceKey,
+    source,
+    `/dashboard/line-summary?line=${encodeURIComponent(line)}`,
+  );
+}
+
+function fetchSourceDashboardLineMonthly(sourceKey, source, line) {
+  return callExternal(
+    sourceKey,
+    source,
+    `/dashboard/line-monthly?line=${encodeURIComponent(line)}`,
+  );
+}
+
 module.exports = {
   fetchSourceSummary,
   fetchSourceTrend,
@@ -332,4 +354,6 @@ module.exports = {
   fetchSourceDashboardSummaryAllDaily,
   fetchSourceDashboardDailyTrend,
   fetchSourceDashboardMonthlySummary,
+  fetchSourceDashboardLineSummary,
+  fetchSourceDashboardLineMonthly,
 };

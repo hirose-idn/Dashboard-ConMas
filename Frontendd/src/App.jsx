@@ -13,19 +13,32 @@ function getUrlState() {
     line: params.get("line"),
     view: params.get("view"),
     tempat: params.get("tempat"),
+    // Diisi cuma kalau line yang dibuka itu punya DB di instance SUBCONT
+    // (diklik dari Master Hub) — lihat selectLine() & PCBDashboard remoteSource.
+    source: params.get("source"),
   };
 }
 
 export default function App() {
   const [urlState, setUrlState] = useState(getUrlState());
 
-  const selectLine = useCallback((code) => {
+  // remoteSourceKey opsional ("sgp"/"systech") — diisi cuma pas line yang
+  // dipilih itu punya DB di instance SUBCONT (diklik dari tabel Ranking
+  // Line di Master Hub, lihat MasterDashboard.jsx). Line Internal biasa
+  // (dari LinePicker/tabel lokal) tetap panggil selectLine(code) tanpa
+  // argumen ke-2, persis kayak sebelumnya.
+  const selectLine = useCallback((code, remoteSourceKey) => {
     const url = new URL(window.location.href);
     url.searchParams.set("line", code);
     url.searchParams.delete("view");
     url.searchParams.delete("tempat");
+    if (remoteSourceKey) {
+      url.searchParams.set("source", remoteSourceKey);
+    } else {
+      url.searchParams.delete("source");
+    }
     window.history.pushState({}, "", url);
-    setUrlState({ line: code, view: null, tempat: null });
+    setUrlState({ line: code, view: null, tempat: null, source: remoteSourceKey || null });
   }, []);
 
   // `tempat` opsional — diisi cuma pas Internal buka "Dashboard Utama"
@@ -35,6 +48,7 @@ export default function App() {
   const goToMaster = useCallback((tempat) => {
     const url = new URL(window.location.href);
     url.searchParams.delete("line");
+    url.searchParams.delete("source");
     url.searchParams.set("view", "master");
     if (tempat) {
       url.searchParams.set("tempat", tempat);
@@ -48,6 +62,7 @@ export default function App() {
   const goToBreakdown = useCallback((tempat) => {
     const url = new URL(window.location.href);
     url.searchParams.delete("line");
+    url.searchParams.delete("source");
     url.searchParams.set("view", "breakdown");
     url.searchParams.set("tempat", tempat);
     window.history.pushState({}, "", url);
@@ -58,6 +73,7 @@ export default function App() {
     const url = new URL(window.location.href);
     url.searchParams.delete("line");
     url.searchParams.delete("tempat");
+    url.searchParams.delete("source");
     url.searchParams.set("view", "hub");
     window.history.pushState({}, "", url);
     setUrlState({ line: null, view: "hub", tempat: null });
@@ -73,8 +89,9 @@ export default function App() {
     url.searchParams.delete("line");
     url.searchParams.delete("tempat");
     url.searchParams.delete("view");
+    url.searchParams.delete("source");
     window.history.pushState({}, "", url);
-    setUrlState({ line: null, view: null, tempat: null });
+    setUrlState({ line: null, view: null, tempat: null, source: null });
   }, []);
 
   const goToPicker = useCallback(() => {
@@ -82,8 +99,9 @@ export default function App() {
     url.searchParams.delete("line");
     url.searchParams.delete("view");
     url.searchParams.delete("tempat");
+    url.searchParams.delete("source");
     window.history.pushState({}, "", url);
-    setUrlState({ line: null, view: null, tempat: null });
+    setUrlState({ line: null, view: null, tempat: null, source: null });
   }, []);
 
   useEffect(() => {
@@ -93,7 +111,9 @@ export default function App() {
   }, []);
 
   if (urlState.line) {
-    return <PCBDashboard line={urlState.line} />;
+    return (
+      <PCBDashboard line={urlState.line} remoteSource={urlState.source} />
+    );
   }
   // ⚠️ "Master Hub" narik /api/master/* buat AGREGASI 3 lokasi — cuma
   // masuk akal diliat dari instance Hirose. Instance subcont (SGP/Systech)

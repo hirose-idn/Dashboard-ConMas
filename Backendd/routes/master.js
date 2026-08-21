@@ -26,6 +26,8 @@ const {
   fetchSourceDashboardSummaryAllDaily,
   fetchSourceDashboardDailyTrend,
   fetchSourceDashboardMonthlySummary,
+  fetchSourceDashboardLineSummary,
+  fetchSourceDashboardLineMonthly,
 } = require("../services/sourceClient");
 const { getLineRangeBreakdown } = require("../services/lineBreakdownService");
 const axios = require("axios");
@@ -506,6 +508,66 @@ router.get("/dashboard/monthly-summary", async (req, res) => {
     }
   }
   res.json(await fetchSourceDashboardMonthlySummary(sourceKey, source, year, month));
+});
+
+// GET /api/dashboard (line detail utama) & GET /api/dashboard/monthly punya
+// kontrak response BEDA dari dashboard/* lain (lihat komentar panjang di
+// api-external.js proxyLocalDashboardRaw) — makanya loopback lokalnya juga
+// pakai helper TERPISAH dari fetchLocalDashboardJson: body mentah dikembaliin
+// apa adanya, bukan diasumsikan selalu {success:true, data:{...}}.
+async function fetchLocalLineJson(pathName, query = {}) {
+  const qs = new URLSearchParams(query).toString();
+  const url = `http://localhost:${process.env.PORT || 3000}/api/dashboard/${pathName}${qs ? `?${qs}` : ""}`;
+  const r = await axios.get(url, { timeout: 10000 });
+  return r.data;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/master/dashboard/line-summary?source=&line=
+//  GET /api/master/dashboard/line-monthly?source=&line=
+//  — drill-down 1 line (dipanggil dari MasterDashboard.jsx pas user klik
+//  row di tabel Ranking Line, buat isi PCBDashboard versi RINGKAS untuk
+//  line SGP/Systech — lihat useDashboardData.js mode "remote"). Sama pola
+//  local->loopback / http->proxy kayak endpoint dashboard/* lain di atas,
+//  cuma pakai fetchLocalLineJson (bukan fetchLocalDashboardJson) buat
+//  cabang local karena kontrak response 2 endpoint ini beda.
+// ─────────────────────────────────────────────────────────────
+router.get("/dashboard/line-summary", async (req, res) => {
+  const resolved = resolveSourceOr400(req, res);
+  if (!resolved) return;
+  const { sourceKey, source } = resolved;
+  const line = (req.query.line || "").trim();
+  if (!line) {
+    return res.status(400).json({ status: "error", message: "Parameter ?line= wajib diisi" });
+  }
+  if (source.type === "local") {
+    try {
+      const data = await fetchLocalLineJson("", { line });
+      return res.json({ source: sourceKey, label: source.label, status: "ok", data });
+    } catch (err) {
+      return res.json({ source: sourceKey, label: source.label, status: "error", message: err.message, data: null });
+    }
+  }
+  res.json(await fetchSourceDashboardLineSummary(sourceKey, source, line));
+});
+
+router.get("/dashboard/line-monthly", async (req, res) => {
+  const resolved = resolveSourceOr400(req, res);
+  if (!resolved) return;
+  const { sourceKey, source } = resolved;
+  const line = (req.query.line || "").trim();
+  if (!line) {
+    return res.status(400).json({ status: "error", message: "Parameter ?line= wajib diisi" });
+  }
+  if (source.type === "local") {
+    try {
+      const data = await fetchLocalLineJson("monthly", { line });
+      return res.json({ source: sourceKey, label: source.label, status: "ok", data });
+    } catch (err) {
+      return res.json({ source: sourceKey, label: source.label, status: "error", message: err.message, data: null });
+    }
+  }
+  res.json(await fetchSourceDashboardLineMonthly(sourceKey, source, line));
 });
 
 module.exports = router;

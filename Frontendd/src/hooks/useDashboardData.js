@@ -63,7 +63,7 @@ function buildFotoUrl(nik) {
   return `${BASE_URL}/foto/${nik}.jpg`;
 }
 
-export default function useDashboardData(lineCode) {
+export default function useDashboardData(lineCode, remoteSource) {
   const [state, setState] = useState(INITIAL_STATE);
 
   const refresh = useCallback(async () => {
@@ -73,41 +73,92 @@ export default function useDashboardData(lineCode) {
       const today = getTodayWIB();
       const lineQS = `line=${encodeURIComponent(lineCode)}`;
 
-      // ── Fetch data shift aktif + akumulasi bulanan ─────────
-      const [dataRes, monthlyRes] = await Promise.all([
-        fetch(`${BASE_URL}/api/dashboard?${lineQS}`),
-        fetch(`${BASE_URL}/api/dashboard/monthly?${lineQS}`),
-      ]);
+      // ── remoteSource diisi (mis. "sgp"/"systech") → line ini punya
+      // DB di instance SUBCONT, bukan lokal Master. Fetch lewat proxy
+      // /api/master/dashboard/line-* (routes/master.js), BUKAN endpoint
+      // lokal /api/dashboard biasa. Lihat MasterDashboard.jsx LineRow buat
+      // gimana remoteSource ini nyampe ke sini.
+      //
+      // ⚠️ Versi RINGKAS SENGAJA: reject-detail & foto personel DI-SKIP
+      // total di mode ini (belum ada proxy buat itu) — angka utama aja
+      // (output/cycle time/stoptime/deviasi). Lihat diskusi PUSH_SYNC_NOTES.md
+      // soal kenapa scope-nya dipersempit dulu.
+      const isRemote = Boolean(remoteSource);
 
-      if (!dataRes.ok)
-        throw new Error(`/api/dashboard: HTTP ${dataRes.status}`);
-      if (!monthlyRes.ok)
-        throw new Error(`/api/dashboard/monthly: HTTP ${monthlyRes.status}`);
+      let d, monthlyJson;
+      if (isRemote) {
+        const [dataRes, monthlyRes] = await Promise.all([
+          fetch(
+            `${BASE_URL}/api/master/dashboard/line-summary?source=${encodeURIComponent(remoteSource)}&${lineQS}`,
+          ),
+          fetch(
+            `${BASE_URL}/api/master/dashboard/line-monthly?source=${encodeURIComponent(remoteSource)}&${lineQS}`,
+          ),
+        ]);
+        if (!dataRes.ok)
+          throw new Error(`line-summary (${remoteSource}): HTTP ${dataRes.status}`);
+        if (!monthlyRes.ok)
+          throw new Error(`line-monthly (${remoteSource}): HTTP ${monthlyRes.status}`);
 
-      const d = await dataRes.json();
-      const monthlyJson = await monthlyRes.json();
-
-      // Reject-detail — optional, gak crash kalau endpoint belum ada datanya
-      let rejectDetailData = null;
-      try {
-        const rejectRes = await fetch(
-          `${BASE_URL}/api/dashboard/reject-detail?${lineQS}&date=${today}`,
-        );
-        if (rejectRes.ok) {
-          const rejectJson = await rejectRes.json();
-          rejectDetailData = rejectJson.data || null;
+        const dataProxy = await dataRes.json();
+        const monthlyProxy = await monthlyRes.json();
+        if (dataProxy.status !== "ok") {
+          throw new Error(dataProxy.message || `Gagal ambil data dari ${remoteSource}`);
         }
-      } catch (_) {
-        // endpoint belum siap — biarkan null, RightColumn pakai default
+        // Body proxy-nya nested {source,label,status,data:<raw>} — <raw>
+        // itu PERSIS bentuk yang dibalikin /api/dashboard & /api/dashboard/
+        // monthly asli (lihat komentar proxyLocalDashboardRaw di
+        // api-external.js), jadi parsing di bawah gak perlu dibedain lagi.
+        d = dataProxy.data || {};
+        monthlyJson =
+          monthlyProxy.status === "ok" ? monthlyProxy.data || {} : {};
+      } else {
+        // ── Fetch data shift aktif + akumulasi bulanan (LOKAL) ─────
+        const [dataRes, monthlyRes] = await Promise.all([
+          fetch(`${BASE_URL}/api/dashboard?${lineQS}`),
+          fetch(`${BASE_URL}/api/dashboard/monthly?${lineQS}`),
+        ]);
+
+        if (!dataRes.ok)
+          throw new Error(`/api/dashboard: HTTP ${dataRes.status}`);
+        if (!monthlyRes.ok)
+          throw new Error(`/api/dashboard/monthly: HTTP ${monthlyRes.status}`);
+
+        d = await dataRes.json();
+        monthlyJson = await monthlyRes.json();
+      }
+
+      // Reject-detail — optional, gak crash kalau endpoint belum ada
+      // datanya. Di mode remote SENGAJA di-skip (belum ada proxy-nya —
+      // rejectDetailData tetap null, RightColumn otomatis fallback ke
+      // tampilan default/MOCK, lihat komentar di RightColumn.jsx).
+      let rejectDetailData = null;
+      if (!isRemote) {
+        try {
+          const rejectRes = await fetch(
+            `${BASE_URL}/api/dashboard/reject-detail?${lineQS}&date=${today}`,
+          );
+          if (rejectRes.ok) {
+            const rejectJson = await rejectRes.json();
+            rejectDetailData = rejectJson.data || null;
+          }
+        } catch (_) {
+          // endpoint belum siap — biarkan null, RightColumn pakai default
+        }
       }
 
       // ── Personnel ───────────────────────────────────────
       const parsedKetua = parsePersonnelField(d.cell_leader_nama);
       const parsedTeknisi = parsePersonnelField(d.pj_teknis_nama);
       const parsedInspector = parsePersonnelField(d.inspector_nama);
-      const ketuaNik = parsedKetua.nik || null;
-      const teknisiNik = parsedTeknisi.nik || null;
-      const inspectorNik = parsedInspector.nik || null;
+      // Foto personel di-skip di mode remote — file foto cuma ada di
+      // /uploads LOKAL instance subcont, Master gak punya aksesnya (belum
+      // ada proxy buat gambar). Set NIK null biar buildFotoUrl() di bawah
+      // gak nembak URL yang bakal 404 di Master, Avatar otomatis fallback
+      // ke inisial nama (lihat components/ui/index.jsx).
+      const ketuaNik = isRemote ? null : parsedKetua.nik || null;
+      const teknisiNik = isRemote ? null : parsedTeknisi.nik || null;
+      const inspectorNik = isRemote ? null : parsedInspector.nik || null;
 
       setState((prev) => ({
         ...prev,
@@ -174,7 +225,7 @@ export default function useDashboardData(lineCode) {
       console.error("Dashboard fetch error:", err.message);
       setState((prev) => ({ ...prev, loading: false, error: err.message }));
     }
-  }, [lineCode]);
+  }, [lineCode, remoteSource]);
 
   useEffect(() => {
     refresh();

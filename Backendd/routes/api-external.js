@@ -333,6 +333,58 @@ async function proxyLocalDashboard(res, path, query = {}) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+//  GET /dashboard/line-summary?line= & /dashboard/line-monthly?line=
+//  — versi RINGKAS 1 line spesifik, dipakai Master pas user klik line
+//  subcont di tabel Ranking Line (routes/master.js proxy ke sini).
+//
+//  ⚠️ BEDA dari proxyLocalDashboard() di atas — GET /api/dashboard (line
+//  detail utama) & GET /api/dashboard/monthly punya kontrak response
+//  yang BEDA dari dashboard/* lain: GET / balikin field FLAT + success:
+//  true (bukan nested di "data"), /monthly malah gak punya field
+//  "success" SAMA SEKALI. Kalau dipaksa lewat proxyLocalDashboard()
+//  (yang expect {success:true, data:{...}}), /monthly SELALU keanggep
+//  error (gak ada "success") dan GET / bakal balikin data:undefined pas
+//  row-nya ketemu (field-nya flat, bukan di "data"). Makanya di sini
+//  body mentah DITERUSKAN APA ADANYA (whole body jadi "data"), Master
+//  yang urus parsing-nya (lihat useDashboardData.js mode remote).
+//
+//  SENGAJA cuma 2 endpoint ini (bukan reject-detail/foto) — itu di-skip
+//  total di sisi Master, biar scope-nya kecil dulu (angka utama:
+//  output/cycle time/stoptime/deviasi).
+// ─────────────────────────────────────────────────────────────
+async function proxyLocalDashboardRaw(res, path, query = {}) {
+  try {
+    const qs = new URLSearchParams(query).toString();
+    const url = `${LOCAL_BASE_URL}/api/dashboard/${path}${qs ? `?${qs}` : ""}`;
+    const r = await axios.get(url, { timeout: 10000 });
+    res.json({
+      status: "ok",
+      source: SOURCE_NAME,
+      timestamp: new Date().toISOString(),
+      data: r.data,
+    });
+  } catch (err) {
+    console.error(
+      `EXTERNAL/DASHBOARD-LINE ERROR (${path || "line-summary"}):`,
+      err.message,
+    );
+    res.status(200).json({
+      status: "error",
+      source: SOURCE_NAME,
+      timestamp: new Date().toISOString(),
+      message: "Gagal ambil data — lihat log server",
+    });
+  }
+}
+
+router.get("/dashboard/line-summary", (req, res) =>
+  proxyLocalDashboardRaw(res, "", { line: req.query.line || "" }),
+);
+router.get("/dashboard/line-monthly", (req, res) =>
+  proxyLocalDashboardRaw(res, "monthly", { line: req.query.line || "" }),
+);
+
 router.get("/dashboard/summary-all", (_req, res) =>
   proxyLocalDashboard(res, "summary-all"),
 );

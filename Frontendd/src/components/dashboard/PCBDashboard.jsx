@@ -6,8 +6,12 @@ import LeftColumn from "./LeftColumn";
 import CenterColumn from "./CenterColumn";
 import RightColumn from "./RightColumn";
 
-export default function PCBDashboard({ line }) {
-  const d = useDashboardData(line);
+export default function PCBDashboard({ line, remoteSource }) {
+  // remoteSource ("sgp" | "systech") diisi cuma kalau halaman ini dibuka
+  // dari Master Hub pas klik line subcont (lihat MasterDashboard.jsx
+  // LineRow + App.jsx selectLine) — bikin hook fetch lewat proxy Master,
+  // bukan endpoint lokal (yang gak akan nemu line itu di DB Master).
+  const d = useDashboardData(line, remoteSource);
 
   // PCBDashboard ini yang ditampilin di TV/kiosk lantai produksi — SENGAJA
   // dipaksa dark TERUS, ga peduli setting tema global lagi light atau dark
