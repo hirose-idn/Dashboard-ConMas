@@ -115,6 +115,7 @@ const {
   parseShiftLabel,
   shiftWindowFromLabel,
   pickActiveRow,
+  getShiftSlotLabels,
 } = require("../utils/shiftResolver");
 
 // ─────────────────────────────────────────────────────────────
@@ -274,6 +275,27 @@ router.get("/", async (req, res) => {
       };
     });
 
+    // Kolom recap yang RELEVAN buat shift ini — dihitung dari jam
+    // start/end beneran (env var), bukan daftar hardcode per tempat kayak
+    // sebelumnya (isu kemarin: 41SY42/Systech shift 08:00-20:00 tapi FE
+    // nampilin kolom 07-08 s.d. 16-17 punya Internal). `hourly` di atas
+    // TETAP array lengkap 25 slot (dipakai isRowStale/getLineStatus3 apa
+    // adanya) — ini cuma buat yang ditampilkan ke FE.
+    const shiftLabelsForDisplay = getShiftSlotLabels(
+      parsedFromRow?.scheme || lineConfig.shift_scheme,
+      parsedFromRow?.shiftNum || 1,
+    );
+    const hourlyForDisplay = shiftLabelsForDisplay.map(
+      (label) =>
+        hourly.find((h) => h.slot === label) || {
+          slot: label,
+          output_plan: null,
+          output_actual: null,
+          deviasi: null,
+          pencapaian: null,
+        },
+    );
+
     const stoptime_total =
       row.stoptime_plan != null && row.stoptime_actual != null
         ? Number(row.stoptime_plan) - Number(row.stoptime_actual)
@@ -324,7 +346,7 @@ router.get("/", async (req, res) => {
       stoptime_method: Number(row.stoptime_method) || 0,
       oee: row.oee != null ? Number(row.oee) : null,
       availability_operator: availabilityOperator,
-      hourly,
+      hourly: hourlyForDisplay,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

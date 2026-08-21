@@ -251,6 +251,53 @@ function shiftWindowFromLabel(calendarDate, scheme, shiftNum) {
   return { startWIB, endWIB };
 }
 
+// Urutan label jam recap ("07-08", "08-09", dst) buat SATU shift tertentu,
+// dihitung dari jam start/end YANG BENERAN DIKONFIG lewat env var di atas —
+// BUKAN hardcode per tempat kayak sebelumnya (lihat `V` yang tadinya ada di
+// frontend). Otomatis benar buat shift malam yang lewat tengah malam,
+// karena tinggal jalan mod 24 dari startHour ke endHour.
+//
+// dow: hari (0=Min..6=Sab) buat nentuin endHour shift 1 2-shift (Jumat vs
+// weekday beda, lihat SHIFT2_END_HOUR_FRIDAY). Default ke hari sekarang
+// (WIB) kalau gak dikasih — dipanggil per-request di routes/dashboard.js.
+function getShiftSlotLabels(scheme, shiftNum, dow) {
+  if (dow === undefined) dow = new Date(Date.now() + 7 * 3600 * 1000).getUTCDay();
+  let startHour, endHour;
+
+  if (scheme === 3) {
+    if (shiftNum === 1) {
+      startHour = SHIFT3_START_HOUR;
+      endHour = SHIFT3_SECOND_START_HOUR;
+    } else if (shiftNum === 2) {
+      startHour = SHIFT3_SECOND_START_HOUR;
+      endHour = SHIFT3_THIRD_START_HOUR;
+    } else {
+      startHour = SHIFT3_THIRD_START_HOUR;
+      endHour = SHIFT3_START_HOUR;
+    }
+  } else {
+    if (shiftNum === 2) {
+      startHour = SHIFT2_NIGHT_START_HOUR;
+      endHour = SHIFT2_START_HOUR;
+    } else {
+      startHour = SHIFT2_START_HOUR;
+      endHour = dow === 5 ? SHIFT2_END_HOUR_FRIDAY : SHIFT2_END_HOUR_WEEKDAY;
+    }
+  }
+
+  const labels = [];
+  let h = startHour;
+  let guard = 0;
+  // guard <= 24: shift maksimal 24 jam (edge case start === end, misal
+  // 3-shift yang salah config jadi 0 jam — jangan sampai infinite loop).
+  while (h !== endHour && guard < 24) {
+    labels.push(hourToLabel(h));
+    h = (h + 1) % 24;
+    guard++;
+  }
+  return labels;
+}
+
 // Dari sekumpulan row kandidat (hasil query line+tanggal TANPA filter shift,
 // biasanya row hari ini + kemarin biar shift yang lewat tengah malam ikut
 // kecover), pilih SATU row yang paling relevan buat "kondisi sekarang":
@@ -309,4 +356,5 @@ module.exports = {
   parseShiftLabel,
   shiftWindowFromLabel,
   pickActiveRow,
+  getShiftSlotLabels,
 };

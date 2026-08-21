@@ -1,92 +1,21 @@
 import React from "react";
 import { C } from "../../config/constants";
-import { fmt, getNowWIB } from "../../config/utils";
+import { fmt } from "../../config/utils";
 import { DataBadge, ProgressBar, SectionTitle, TH, TD } from "../ui";
 
-// ─── Filter slot jam berdasarkan shift aktif ──────────────
-const SHIFT_SLOTS = {
-  "Shift 1 (2 Shift)": [
-    "07-08",
-    "08-09",
-    "09-10",
-    "10-11",
-    "11-12",
-    "12-13",
-    "13-14",
-    "14-15",
-    "15-16",
-  ],
-  "Shift 2 (2 Shift)": [
-    "22-23",
-    "23-24",
-    "24-1",
-    "01-02",
-    "02-03",
-    "03-04",
-    "04-05",
-    "05-06",
-    "06-07_2",
-  ],
-  "Shift 1 (3 Shift)": [
-    "06-07_1",
-    "07-08",
-    "08-09",
-    "09-10",
-    "10-11",
-    "11-12",
-    "12-13",
-    "13-14",
-  ],
-  "Shift 2 (3 Shift)": [
-    "14-15",
-    "15-16",
-    "16-17",
-    "17-18",
-    "18-19",
-    "19-20",
-    "20-21",
-    "21-22",
-  ],
-  "Shift 3 (3 Shift)": [
-    "22-23",
-    "23-24",
-    "24-1",
-    "01-02",
-    "02-03",
-    "03-04",
-    "04-05",
-    "05-06",
-  ],
-};
-
-function filterHourlyByShift(hourly, shift) {
-  if (!shift || !SHIFT_SLOTS[shift]) return hourly;
-
-  // Jumat (day=5): Shift 1 (2 Shift) sampai 17:00, tambah slot 16-17
-  // — dihitung dari HARI WIB (getUTCDay() atas jam yang udah di-offset +7),
-  // BUKAN new Date().getDay() lokal browser (bisa beda hari kalau device
-  // yang buka dashboard timezone-nya bukan Asia/Jakarta).
-  const isFriday = getNowWIB().getUTCDay() === 5;
-  let allowed = [...SHIFT_SLOTS[shift]];
-  if (shift === "Shift 1 (2 Shift)" && isFriday) {
-    allowed = [...allowed, "16-17"];
-  }
-
-  const need2nd = shift === "Shift 2 (2 Shift)";
-  const need1st = shift === "Shift 1 (3 Shift)";
-  let count = 0;
-  return hourly.filter((h) => {
-    if (h.slot === "06-07") {
-      count++;
-      if (need2nd) return count === 2;
-      if (need1st) return count === 1;
-      return false;
-    }
-    return allowed.some(
-      (s) => s.replace("_1", "").replace("_2", "") === h.slot,
-    );
-  });
-}
+// Dulu di sini ada SHIFT_SLOTS + filterHourlyByShift yang hardcode daftar
+// kolom jam per shift (jam Internal: shift 1 mulai 07:00, malam 22:00,
+// dst). Itu penyebab bug: line subcont (Systech) yang jam shiftnya beda
+// (misal 08:00-20:00) tetap ditampilin pakai kolom jam Internal, jadi
+// kolom yang muncul salah dan data ketuker slot.
+//
+// Sekarang backend (`GET /api/dashboard`) yang nentuin kolom mana yang
+// relevan buat shift ini — dihitung dari jam start/end beneran (env var
+// SHIFT2_START_HOUR dkk per instance, lihat utils/shiftResolver.js ->
+// getShiftSlotLabels), bukan tebakan hardcode di FE. Array `hourly` yang
+// dikirim backend udah persis kolom yang mau ditampilkan, jadi FE tinggal
+// render apa adanya — otomatis benar juga buat shift malam / 3-shift /
+// jam custom apa pun tanpa perlu maintain mapping ini lagi.
 
 // ─── Card metrik besar (Target/Hasil/Deviasi/PPM) ─────────
 function MetricCard({ label, value, color, noBorderRight, badge, unit }) {
@@ -333,7 +262,9 @@ export default function CenterColumn({
   hourly,
   shift,
 }) {
-  const filteredHourly = filterHourlyByShift(hourly, shift);
+  // `hourly` dari backend udah difilter & diurutin sesuai shift aktif —
+  // gak perlu difilter ulang di FE (lihat catatan di atas file).
+  const filteredHourly = hourly;
   const ctOvertime =
     cycle_time_actual !== null && cycle_time_swi !== null
       ? cycle_time_actual > cycle_time_swi
