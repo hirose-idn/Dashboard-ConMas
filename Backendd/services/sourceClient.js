@@ -75,6 +75,42 @@ function getPushTypeForPath(path) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
     return `dashboard-summary-all-daily-${date}`;
   }
+  // "/dashboard/line-summary" & "/dashboard/line-monthly" — drill-down 1
+  // line spesifik (klik row Ranking Line di Master Hub buat SGP/Systech).
+  // ⚠️ INFRA REALITY: pull HTTP langsung dari Master ke SGP/Systech itu
+  // TIDAK PERNAH bisa jalan sama sekali di deployment ini (gak ada
+  // Tailscale/VPN lagi, subcont cuma expose backend API lewat Cloudflare
+  // Tunnel yang searah/outbound doang) — jadi source.active SELALU false,
+  // dan callExternal() SELALU masuk ke tryPushFallback() di bawah. 2 type
+  // ini WAJIB ada datanya di push-sync (lihat pushSyncService.js jobs
+  // per-line) atau drill-down bakal SELALU nampilin "Kredensial/URL belum
+  // dikonfigurasi" — bukan fallback, tapi SATU-SATUNYA jalur.
+  //
+  // "/dashboard/line-summary" statis kayak "/summary" (snapshot shift
+  // berjalan, direfresh tiap siklus) — line-nya sendiri yang jadi bagian
+  // identitas type, bukan year/month.
+  if (base === "/dashboard/line-summary") {
+    const params = new URLSearchParams(query);
+    const line = (params.get("line") || "").trim();
+    if (!line) return null;
+    return `dashboard-line-${line}`;
+  }
+  // "/dashboard/line-monthly" SELALU akumulasi bulan BERJALAN (endpoint-nya
+  // sendiri gak nerima ?year=/?month=, lihat routes/dashboard.js "/monthly"
+  // — selalu pakai WIB skarang), jadi year-month dihitung dari jam Master
+  // sendiri di sini (BUKAN dari query, karena emang gak ada) — aman selama
+  // jam server Master & subcont sama-sama bener, sama persis asumsi yang
+  // udah dipakai buat "summary" (snapshot, gak parametrized) di seluruh file
+  // ini.
+  if (base === "/dashboard/line-monthly") {
+    const params = new URLSearchParams(query);
+    const line = (params.get("line") || "").trim();
+    if (!line) return null;
+    const wib = new Date(Date.now() + 7 * 3600 * 1000);
+    const year = wib.getUTCFullYear();
+    const month = wib.getUTCMonth() + 1;
+    return `dashboard-line-monthly-${line}-${year}-${month}`;
+  }
   return PATH_TO_PUSH_TYPE[base] || null;
 }
 
@@ -129,6 +165,21 @@ function resolveMaxAgeForPushType(pushType) {
     const [, y, m] = monthMatch;
     if (isClosedMonth(Number(y), Number(m))) {
       return Infinity; // bulan udah tutup, data final, gak akan di-push ulang lagi
+    }
+    return PUSH_FALLBACK_MAX_AGE_MS;
+  }
+
+  // "dashboard-line-monthly-<LINE>-<Y>-<M>" — sama alasannya kayak
+  // monthMatch di atas, cuma line code-nya nyempil di tengah (sebelum
+  // year-month). ".+" itu GREEDY — regex engine otomatis backtrack biar
+  // "-\d{4}-\d{1,2}" di ujung tetap ke-match, jadi 2 grup angka TERAKHIR
+  // yang selalu ke-anggep year/month, biarpun line code-nya sendiri
+  // isinya angka juga (kayak "41HR114C").
+  const lineMonthMatch = /^dashboard-line-monthly-.+-(\d{4})-(\d{1,2})$/.exec(pushType);
+  if (lineMonthMatch) {
+    const [, y, m] = lineMonthMatch;
+    if (isClosedMonth(Number(y), Number(m))) {
+      return Infinity;
     }
     return PUSH_FALLBACK_MAX_AGE_MS;
   }

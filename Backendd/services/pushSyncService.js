@@ -27,6 +27,7 @@ const {
   getLocalMonthlySummary,
 } = require("./summaryService");
 const { getLineRangeBreakdown } = require("./lineBreakdownService");
+const { getAllLines } = require("../utils/linesRegistry");
 
 const SOURCE_NAME = process.env.SOURCE_NAME; // 'sgp' | 'systech'
 const MASTER_URL = process.env.PUSH_MASTER_URL; // https://<domain-atau-tunnel>/api/sync
@@ -165,6 +166,26 @@ async function collectPayloads() {
     // "range-trend" sengaja gak dipush rutin — parameternya bebas
     // (start/end custom dari user di Master), gak pas buat cache berkala.
   ];
+
+  // ⚠️ Drill-down per-line (klik row Ranking Line di Master Hub → buka
+  // PCBDashboard versi RINGKAS) — SATU-SATUNYA jalur buat data ini,
+  // BUKAN fallback, karena pull HTTP Master→subcont gak pernah bisa jalan
+  // di infra ini (gak ada Tailscale, subcont cuma expose lewat tunnel
+  // outbound doang — lihat komentar panjang di sourceClient.js
+  // getPushTypeForPath). 1 line = 2 request (line-summary + line-monthly),
+  // jadi makin banyak line aktif, makin banyak request/siklus — cek
+  // syncLimiter di routes/sync.js (Master) masih punya headroom kalau
+  // jumlah line nambah banyak.
+  for (const line of getAllLines()) {
+    jobs.push({
+      type: `dashboard-line-${line.line_code}`,
+      fn: () => fetchLocalDashboard("line-summary", { line: line.line_code }),
+    });
+    jobs.push({
+      type: `dashboard-line-monthly-${line.line_code}-${year}-${month}`,
+      fn: () => fetchLocalDashboard("line-monthly", { line: line.line_code }),
+    });
+  }
 
   const payloads = [];
   for (const job of jobs) {

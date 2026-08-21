@@ -47,13 +47,24 @@ const DASHBOARD_MONTHLY_TYPE_RE =
 // (bukan bulan), format tanggal PADDED (YYYY-MM-DD) biar gak ambigu.
 const DASHBOARD_DAILY_TYPE_RE =
   /^dashboard-summary-all-daily-\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+// "dashboard-line-<CODE>" (snapshot shift berjalan) & "dashboard-line-
+// monthly-<CODE>-<Y>-<M>" (akumulasi bulan berjalan) — drill-down per-line
+// buat SGP/Systech, satu-satunya jalur karena pull HTTP gak pernah bisa
+// jalan di infra ini (lihat komentar panjang di sourceClient.js
+// getPushTypeForPath). Line code bebas huruf/angka/underscore/strip (liat
+// data/lines.json, contoh "41HR114C"), jadi charset regex-nya dilonggarin.
+const DASHBOARD_LINE_TYPE_RE = /^dashboard-line-[A-Za-z0-9_-]+$/;
+const DASHBOARD_LINE_MONTHLY_TYPE_RE =
+  /^dashboard-line-monthly-[A-Za-z0-9_-]+-\d{4}-(1[0-2]|[1-9])$/;
 function isValidPushType(type) {
   return (
     VALID_TYPES.includes(type) ||
     MONTHLY_SUMMARY_TYPE_RE.test(type) ||
     LINE_BREAKDOWN_TYPE_RE.test(type) ||
     DASHBOARD_MONTHLY_TYPE_RE.test(type) ||
-    DASHBOARD_DAILY_TYPE_RE.test(type)
+    DASHBOARD_DAILY_TYPE_RE.test(type) ||
+    DASHBOARD_LINE_MONTHLY_TYPE_RE.test(type) ||
+    DASHBOARD_LINE_TYPE_RE.test(type)
   );
 }
 
@@ -66,12 +77,15 @@ function isValidPushType(type) {
 // dipasang sebelum semua route), jadi aman dipakai di sini.
 const syncLimiter = rateLimit({
   windowMs: 60 * 1000,
-  // Dulu 60 didesain buat 4 jenis data/source tiap ~1 menit. Sekarang 9
-  // jenis (breakdown per line + 5 dashboard-*), plus retry backlog bisa
-  // nyumbang sampe 15 request/siklus (lihat MAX_RETRY_PER_CYCLE di
-  // pushSyncService.js) — dinaikin biar ada headroom, gak gampang
-  // kepicu 429 dari operasi normal doang.
-  max: 120,
+  // Dulu 60 didesain buat 4 jenis data/source tiap ~1 menit, lalu naik ke
+  // 120 pas nambah 9 jenis (breakdown per line + 5 dashboard-*). Sekarang
+  // nambah lagi 2 request PER LINE AKTIF (dashboard-line-<CODE> +
+  // dashboard-line-monthly-<CODE>-Y-M, lihat pushSyncService.js) — kalau
+  // instance ini punya banyak line (puluhan), gampang kelewat 120 dalam 1
+  // siklus (apalagi ada retry backlog nambahin sampai 15 lagi). Naikin ke
+  // 400 biar ada headroom cukup gede — kalau suatu saat masih kena 429 di
+  // log, ini angka pertama yang perlu dicek/naikin lagi.
+  max: 400,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => String(req.body?.source || ipKeyGenerator(req.ip)),
@@ -132,7 +146,7 @@ router.post("/", requireSyncKey, async (req, res) => {
     logRejected(source, type, "type tidak dikenal");
     return res.status(400).json({
       status: "error",
-      message: `type harus salah satu dari: ${VALID_TYPES.join(", ")}, atau monthly-summary-YYYY-M / line-range-breakdown-YYYY-M / dashboard-daily-trend-YYYY-M / dashboard-monthly-summary-YYYY-M / dashboard-summary-all-daily-YYYY-MM-DD`,
+      message: `type harus salah satu dari: ${VALID_TYPES.join(", ")}, atau monthly-summary-YYYY-M / line-range-breakdown-YYYY-M / dashboard-daily-trend-YYYY-M / dashboard-monthly-summary-YYYY-M / dashboard-summary-all-daily-YYYY-MM-DD / dashboard-line-<CODE> / dashboard-line-monthly-<CODE>-YYYY-M`,
     });
   }
   if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) {
@@ -193,6 +207,14 @@ router.get("/status", async (_req, res) => {
       "dashboard-daily-trend-",
       "dashboard-monthly-summary-",
       "dashboard-summary-all-daily-",
+      // Ambigu sengaja: prefix ini nyangkut baik "dashboard-line-<CODE>"
+      // (snapshot) MAUPUN "dashboard-line-monthly-<CODE>-Y-M" (akumulasi
+      // bulan) sekaligus — getLatestPushByPrefix cuma ambil YANG PALING
+      // BARU dari keduanya gabung jadi 1 baris, jadi /status ini cuma buat
+      // "masih ada yg ke-push barusan gak", bukan buat lihat SEMUA line
+      // satu-satu (banyak line = banyak baris, gak muat kalau di-expand
+      // di sini).
+      "dashboard-line-",
     ];
     for (const prefix of keyedPrefixes) {
       const latest = await getLatestPushByPrefix(source, prefix, Infinity);
