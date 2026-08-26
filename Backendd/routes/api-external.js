@@ -83,6 +83,18 @@ const externalLimiter = rateLimit({
     status: "error",
     message: "Terlalu banyak request, coba lagi sebentar",
   },
+  // pushSyncService.js (instance SGP/Systech) loopback ke endpoint ini
+  // sendiri lewat http://localhost:PORT buat ambil data yang mau dipush
+  // ke Master — 1 request per jenis data, dan makin banyak line aktif
+  // makin banyak request/siklus (lihat komentar di pushSyncService.js).
+  // Budget 30/menit itu diitung buat traffic Master POLLING dari luar,
+  // BUKAN buat loopback internal ini — begitu jumlah line lumayan
+  // banyak, loopback sendiri udah ngabisin budget duluan sebelum Master
+  // asli sempat polling. Request loopback (dari 127.0.0.1/::1) tetap
+  // kena requireApiKey di bawah, jadi tetap aman di-skip dari limiter
+  // ini — traffic eksternal beneran (via tunnel/Caddy) gak pernah
+  // muncul dengan IP loopback.
+  skip: (req) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip),
 });
 
 router.use(externalLimiter);
