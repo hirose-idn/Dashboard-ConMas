@@ -354,6 +354,7 @@ module.exports = {
   NOT_RUNNING_THRESHOLD_MIN,
   START_GRACE_MIN,
   parseShiftLabel,
+  hourToLabel,
   shiftWindowFromLabel,
   pickActiveRow,
   getShiftSlotLabels,

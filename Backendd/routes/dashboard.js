@@ -39,35 +39,80 @@ const { VIEW, COLS, REJECT_PAIRS } = require("../config/reportColumns");
 // (satu-satunya definisi, dipakai bareng sama endpoint di bawah + api-external.js).
 const { SLOTS, getLineRangeBreakdown } = require("../services/lineBreakdownService");
 
-// Rekapitulasi per jam — 25 slot, 06:00 s.d. 07:00 keesokan harinya.
-// Row hanya keisi sesuai jam jalan shift terkait; sisanya NULL (otomatis tampil "—" di FE).
-const HOURLY = [
-  { label: "06-07", plan: "cluster_1_151_n", actual: "cluster_1_152_n" },
-  { label: "07-08", plan: "cluster_1_256_n", actual: "cluster_1_257_n" },
-  { label: "08-09", plan: "cluster_1_361_n", actual: "cluster_1_362_n" },
-  { label: "09-10", plan: "cluster_1_466_n", actual: "cluster_1_467_n" },
-  { label: "10-11", plan: "cluster_1_571_n", actual: "cluster_1_572_n" },
-  { label: "11-12", plan: "cluster_1_676_n", actual: "cluster_1_677_n" },
-  { label: "12-13", plan: "cluster_1_781_n", actual: "cluster_1_782_n" },
-  { label: "13-14", plan: "cluster_1_886_n", actual: "cluster_1_887_n" },
-  { label: "14-15", plan: "cluster_1_991_n", actual: "cluster_1_992_n" },
-  { label: "15-16", plan: "cluster_1_1096_n", actual: "cluster_1_1097_n" },
-  { label: "16-17", plan: "cluster_1_1201_n", actual: "cluster_1_1202_n" },
-  { label: "17-18", plan: "cluster_1_1306_n", actual: "cluster_1_1307_n" },
-  { label: "18-19", plan: "cluster_1_1411_n", actual: "cluster_1_1412_n" },
-  { label: "19-20", plan: "cluster_1_1516_n", actual: "cluster_1_1517_n" },
-  { label: "20-21", plan: "cluster_1_1621_n", actual: "cluster_1_1622_n" },
-  { label: "21-22", plan: "cluster_1_1726_n", actual: "cluster_1_1727_n" },
-  { label: "22-23", plan: "cluster_1_1831_n", actual: "cluster_1_1832_n" },
-  { label: "23-24", plan: "cluster_1_1936_n", actual: "cluster_1_1937_n" },
-  { label: "24-1", plan: "cluster_1_2041_n", actual: "cluster_1_2042_n" },
-  { label: "01-02", plan: "cluster_1_2146_n", actual: "cluster_1_2147_n" },
-  { label: "02-03", plan: "cluster_1_2251_n", actual: "cluster_1_2252_n" },
-  { label: "03-04", plan: "cluster_1_2356_n", actual: "cluster_1_2357_n" },
-  { label: "04-05", plan: "cluster_1_2461_n", actual: "cluster_1_2462_n" },
-  { label: "05-06", plan: "cluster_1_2566_n", actual: "cluster_1_2567_n" },
-  { label: "06-07", plan: "cluster_1_2671_n", actual: "cluster_1_2672_n" },
+// resolveShiftAndDate & isLineNotRunning di-extract ke utils/shiftResolver.js
+// supaya bisa dipakai bareng routes/api-external.js tanpa duplikasi.
+// ⚠️ Import ini WAJIB ada SEBELUM definisi HOURLY di bawah (butuh
+// hourToLabel buat generate label-nya) — jangan dipindah balik ke bawah.
+const {
+  resolveShiftAndDate,
+  isLineNotRunning,
+  isRowStale,
+  getLineStatus3,
+  parseShiftLabel,
+  shiftWindowFromLabel,
+  pickActiveRow,
+  getShiftSlotLabels,
+  hourToLabel,
+} = require("../utils/shiftResolver");
+
+// Rekapitulasi per jam — 25 slot FISIK (urutan kolom cluster_1_XXX di bawah
+// FIXED, sama buat semua instance — ini layout form ConMas asli, slot ke-1
+// s.d. ke-25 SEKUENSIAL, bukan jam absolut).
+//
+// ⚠️ TEMUAN 21 Agu 2026: slot ke-1 (cluster_1_151) itu BUKAN selalu jam
+// 06:00-07:00! Operator ConMas ngisi form MULAI DARI SLOT PERTAMA begitu
+// shift MEREKA mulai — jadi "jam berapa slot-1 itu" tergantung jam mulai
+// shift di instance itu sendiri. Internal shift-1-3-shift mulai jam 06:00
+// (makanya slot-1 historisnya dilabelin "06-07"), tapi Systech shift-1
+// mulai jam 08:00 — slot-1 mereka ITU jam 08:00-09:00, BUKAN 06:00-07:00,
+// walau kolom DB-nya SAMA PERSIS (cluster_1_151).
+//
+// Fix: label di-generate dari HOURLY_SLOT_OFFSET (.env per instance) —
+// jumlah jam pergeseran slot-1 dari baseline Internal (jam 6). Internal gak
+// perlu diisi (default 0, hasilnya identik kayak hardcode lama). Systech
+// contoh: slot-1 mereka = jam 8 = 2 jam lebih telat dari baseline 6 →
+// HOURLY_SLOT_OFFSET=2.
+const HOURLY_SLOT_OFFSET = parseInt(process.env.HOURLY_SLOT_OFFSET, 10) || 0;
+const HOURLY_BASE_START_HOUR = 6; // jam real slot-1 Internal (SSoT — jangan diubah, instance lain nyesuaiin lewat OFFSET)
+const HOURLY_COLUMNS = [
+  ["cluster_1_151_n", "cluster_1_152_n"],
+  ["cluster_1_256_n", "cluster_1_257_n"],
+  ["cluster_1_361_n", "cluster_1_362_n"],
+  ["cluster_1_466_n", "cluster_1_467_n"],
+  ["cluster_1_571_n", "cluster_1_572_n"],
+  ["cluster_1_676_n", "cluster_1_677_n"],
+  ["cluster_1_781_n", "cluster_1_782_n"],
+  ["cluster_1_886_n", "cluster_1_887_n"],
+  ["cluster_1_991_n", "cluster_1_992_n"],
+  ["cluster_1_1096_n", "cluster_1_1097_n"],
+  ["cluster_1_1201_n", "cluster_1_1202_n"],
+  ["cluster_1_1306_n", "cluster_1_1307_n"],
+  ["cluster_1_1411_n", "cluster_1_1412_n"],
+  ["cluster_1_1516_n", "cluster_1_1517_n"],
+  ["cluster_1_1621_n", "cluster_1_1622_n"],
+  ["cluster_1_1726_n", "cluster_1_1727_n"],
+  ["cluster_1_1831_n", "cluster_1_1832_n"],
+  ["cluster_1_1936_n", "cluster_1_1937_n"],
+  ["cluster_1_2041_n", "cluster_1_2042_n"],
+  ["cluster_1_2146_n", "cluster_1_2147_n"],
+  ["cluster_1_2251_n", "cluster_1_2252_n"],
+  ["cluster_1_2356_n", "cluster_1_2357_n"],
+  ["cluster_1_2461_n", "cluster_1_2462_n"],
+  ["cluster_1_2566_n", "cluster_1_2567_n"],
+  ["cluster_1_2671_n", "cluster_1_2672_n"],
 ];
+const HOURLY = HOURLY_COLUMNS.map(([plan, actual], i) => {
+  // Modulo positif — HOURLY_SLOT_OFFSET boleh negatif kalau suatu saat ada
+  // instance yang slot-1-nya JUSTRU lebih PAGI dari baseline Internal.
+  const hour =
+    (((HOURLY_BASE_START_HOUR + i + HOURLY_SLOT_OFFSET) % 24) + 24) % 24;
+  return { label: hourToLabel(hour), plan, actual };
+});
+// Index 24 SELALU dapet label SAMA kayak index 0 (25 slot muter lebih dari
+// 24 jam, balik ke jam awal lagi) — ini BUKAN bug, konsekuensi matematis
+// bawaan struktur 25-slot, berlaku di OFFSET manapun. Aman karena
+// hourlyColKey(i) di bawah pakai INDEX buat key lookup (bukan label), jadi
+// 2 slot ber-label sama TETEP kebaca kolom masing-masing yang bener.
 
 // BUG LAMA yang baru ketauan: label "06-07" muncul 2x di array HOURLY di
 // atas (index 0 = jam pertama shift-1 3-shift/cluster_1_151-152, index 24
@@ -104,19 +149,6 @@ function hourlyColKey(i) {
 //  ⚠️ Value kolom `shift` di DB bentuknya "Shift 1 (2 Shift)",
 //  "Shift 2 (3 Shift)", dst — ada suffix scheme.
 // ─────────────────────────────────────────────────────────────
-
-// resolveShiftAndDate & isLineNotRunning di-extract ke utils/shiftResolver.js
-// supaya bisa dipakai bareng routes/api-external.js tanpa duplikasi.
-const {
-  resolveShiftAndDate,
-  isLineNotRunning,
-  isRowStale,
-  getLineStatus3,
-  parseShiftLabel,
-  shiftWindowFromLabel,
-  pickActiveRow,
-  getShiftSlotLabels,
-} = require("../utils/shiftResolver");
 
 // ─────────────────────────────────────────────────────────────
 //  GET /?line=... — data shift aktif untuk line yang diminta
