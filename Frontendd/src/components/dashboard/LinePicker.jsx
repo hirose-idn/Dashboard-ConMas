@@ -154,7 +154,7 @@ export default function LinePicker({
 
         {IS_INTERNAL_INSTANCE && onGoToMaster && (
           <button
-            onClick={onGoToMaster}
+            onClick={() => onGoToMaster()}
             style={{
               background: "transparent",
               border: `1px solid ${C.borderBr}`,
@@ -181,7 +181,7 @@ export default function LinePicker({
             pintas yang nyelonong Master Dashboard-nya). */}
         {!IS_INTERNAL_INSTANCE && onGoToMaster && (
           <button
-            onClick={onGoToMaster}
+            onClick={() => onGoToMaster()}
             style={{
               background: "transparent",
               border: `1px solid ${C.borderBr}`,

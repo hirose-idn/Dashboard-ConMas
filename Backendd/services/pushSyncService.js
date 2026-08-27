@@ -206,6 +206,71 @@ async function collectPayloads() {
   return payloads;
 }
 
+// ── BACKFILL HISTORI ──────────────────────────────────────────────
+// syncCycle() di atas CUMA push tanggal/bulan BERJALAN (lihat komentar
+// panjang di collectPayloads) — histori (tanggal/bulan yang udah lewat)
+// gak pernah ke-push sama sekali, jadi kalau pull HTTP normal (Tailscale/
+// tunnel) gagal buat data lama, gak ada fallback (sourceClient.js balikin
+// null/error, BUKAN "data basi").
+//
+// 2 fungsi di bawah ini dipakai scripts/backfillPush.js buat push data
+// LAMA sekali jalan (bukan tiap siklus/menit kayak syncCycle) — abis itu,
+// karena bulan/hari yang udah lewat dianggap FINAL sama sourceClient.js
+// (isClosedDay/isClosedMonth -> maxAge Infinity), gak akan basi lagi
+// SELAMANYA meski backfill cuma dijalanin sekali.
+
+// Backfill 1 HARI spesifik — dipakai buat type `dashboard-summary-all-
+// daily-YYYY-MM-DD` (panel Ranking Line by tanggal). dateStr format
+// "YYYY-MM-DD".
+async function collectDayPayload(dateStr) {
+  const timestamp = new Date().toISOString();
+  try {
+    const data = await fetchLocalDashboard("summary-all-daily", { date: dateStr });
+    return { type: `dashboard-summary-all-daily-${dateStr}`, timestamp, data };
+  } catch (err) {
+    const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    console.error(`PUSHSYNC/backfill hari (${dateStr}) gagal:`, detail);
+    return null;
+  }
+}
+
+// Backfill 1 BULAN spesifik — 4 type yang di-key per year-month. SENGAJA
+// GAK termasuk "monthly-trend" (dipush statis di collectPayloads, gak
+// per-bulan sama sekali di sourceClient.js — backfill bulan lama ke type
+// itu malah bisa nimpa cache bulan BERJALAN. Itu keterbatasan lain, di
+// luar scope backfill ini) dan "dashboard-line-monthly-*" (per-line, bisa
+// dipush terpisah lewat collectLineMonthPayloads kalau perlu).
+async function collectMonthPayloads(year, month) {
+  const timestamp = new Date().toISOString();
+  const { start: monthStart, end: monthEnd } = fullMonthRange(year, month);
+  const jobs = [
+    { type: `monthly-summary-${year}-${month}`, fn: () => getLocalMonthlySummary(year, month) },
+    {
+      type: `line-range-breakdown-${year}-${month}`,
+      fn: () => getLineRangeBreakdown(null, monthStart, monthEnd),
+    },
+    {
+      type: `dashboard-daily-trend-${year}-${month}`,
+      fn: () => fetchLocalDashboard("daily-trend", { year, month }),
+    },
+    {
+      type: `dashboard-monthly-summary-${year}-${month}`,
+      fn: () => fetchLocalDashboard("monthly-summary", { year, month }),
+    },
+  ];
+  const payloads = [];
+  for (const job of jobs) {
+    try {
+      const data = await job.fn();
+      payloads.push({ type: job.type, timestamp, data });
+    } catch (err) {
+      const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      console.error(`PUSHSYNC/backfill bulan (${job.type}) gagal:`, detail);
+    }
+  }
+  return payloads;
+}
+
 // Batasi berapa item backlog yang dicoba kirim ulang PER SIKLUS — kalau
 // backlog gede (misal abis Master down/reject beberapa saat), jangan
 // nembak SEMUANYA sekaligus dalam 1 siklus (bisa puluhan/ratusan request
@@ -269,8 +334,48 @@ function start() {
   console.log(
     `🔄 Push-sync service AKTIF — kirim data ke ${MASTER_URL} tiap ${INTERVAL_MS / 1000}s (source=${SOURCE_NAME})`,
   );
+
+  // Guard anti-tabrakan: setInterval nembak tiap INTERVAL_MS TERLEPAS dari
+  // apakah syncCycle() sebelumnya udah kelar. Kalau jumlah line banyak
+  // (tiap line = 2 request sequential), 1 putaran bisa mepet/lewat
+  // INTERVAL_MS pas lagi ada perlambatan (DB berat, network lag) — tanpa
+  // guard ini, siklus baru numpuk DI ATAS yang lama (bukan gantiin),
+  // makin lama makin banyak siklus jalan BARENGAN → makin banyak koneksi
+  // DB & request keluar sekaligus → makin lambat → makin numpuk lagi
+  // (spiral, gak balik normal sendiri sampai proses di-restart). Dengan
+  // guard ini, kalau kejadian, siklus baru cuma di-skip (log doang),
+  // BUKAN ditumpuk — begitu siklus yang lagi jalan kelar, siklus
+  // berikutnya jalan normal lagi di tick INTERVAL_MS terdekat.
+  let isRunning = false;
+  let skippedCount = 0;
+
   syncCycle(); // jalan sekali langsung pas start
-  setInterval(syncCycle, INTERVAL_MS);
+  setInterval(async () => {
+    if (isRunning) {
+      skippedCount++;
+      console.warn(
+        `PUSHSYNC ⚠️  Siklus sebelumnya masih jalan (>${INTERVAL_MS / 1000}s) — siklus ini di-skip (total skip: ${skippedCount}). Kalau ini sering muncul, INTERVAL_MS mungkin perlu dinaikin atau jumlah job/line perlu dikurangin per-siklus.`,
+      );
+      return;
+    }
+    isRunning = true;
+    try {
+      await syncCycle();
+    } catch (err) {
+      console.error("PUSHSYNC syncCycle error gak ketangkep:", err.message);
+    } finally {
+      isRunning = false;
+    }
+  }, INTERVAL_MS);
 }
 
-module.exports = { start };
+module.exports = {
+  start,
+  // Diekspos khusus buat scripts/backfillPush.js:
+  sendToMaster,
+  collectDayPayload,
+  collectMonthPayloads,
+  MASTER_URL,
+  SYNC_KEY,
+  SOURCE_NAME,
+};

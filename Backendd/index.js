@@ -62,7 +62,27 @@ app.use("/api/external", apiExternalRoutes);
 // Endpoint buat Master Dashboard SENDIRI (dipanggil dari frontend Hirose) —
 // gabungin Internal (lokal) + SGP/Systech (HTTP). TIDAK perlu diexpose ke
 // publik/Caddy, cukup diakses dari LAN kayak /api/dashboard biasa.
-app.use("/api/master", masterRoutes);
+//
+// DIGATE ke instance Internal doang (SOURCE_NAME === "internal"). Sebelum
+// ini gak ada gate sama sekali — 1 codebase yang sama jalan di SGP/Systech
+// juga, jadi kalau localhost SGP/Systech dibuka langsung, route ini tetep
+// jalan dan itungannya SALAH: "internal" (type: "local" di
+// config/sources.js) jadi query DB LOKAL instance yang lagi diakses itu
+// sendiri (bukan DB Hirose beneran), ketampil seolah-olah "Hirose
+// Internal: Terhubung" padahal itu data SGP/Systech sendiri yang salah
+// label. Sebelumnya cuma dilindungi "gak di-expose Caddy" — itu proteksi
+// jaringan doang, localhost tetep bisa nyentuh. Sekarang instance
+// SGP/Systech otomatis 403 di route ini, gak keitung komputasi apa-apa.
+function requireInternalInstance(req, res, next) {
+  if (process.env.SOURCE_NAME !== "internal") {
+    return res.status(403).json({
+      message:
+        "Endpoint /api/master cuma aktif di instance Internal (Master) — instance ini SOURCE_NAME-nya bukan 'internal'.",
+    });
+  }
+  next();
+}
+app.use("/api/master", requireInternalInstance, masterRoutes);
 // Penerima push-sync dari SGP/Systech (fallback kalau pull Tailscale/tunnel
 // putus). Cuma relevan di instance Master (Internal) — di SGP/Systech
 // endpoint ini tetap ke-mount tapi gak akan pernah dipanggil siapa-siapa,

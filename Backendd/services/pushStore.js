@@ -11,6 +11,16 @@
 
 const { pool, configured } = require("../db-sync");
 
+// Sama kayak PUSH_FALLBACK_MAX_AGE_MS di sourceClient.js (env var yang
+// sama, biar 1 sumber kebenaran) — dipakai buat nge-log WARNING kalau
+// jarak antar push yang sukses (source+type yang sama) ngelewatin
+// threshold ini. Ini persis threshold yang nentuin status di dashboard
+// Master flip ke "Belum Dikonfigurasi" — jadi log ini nyatet KAPAN
+// persisnya status itu sempat/bakal flip, walau gak ada yang lagi
+// mantengin dashboard pas kejadian. Cek riwayatnya: `pm2 logs <master>
+// | grep "Gap push"`.
+const GAP_WARN_MS = Number(process.env.PUSH_FALLBACK_MAX_AGE_MS) || 5 * 60 * 1000;
+
 async function savePush(source, type, payloadTimestamp, data) {
   if (!configured) return { ok: false, reason: "SYNC_DB belum dikonfigurasi" };
 
@@ -40,6 +50,16 @@ async function savePush(source, type, payloadTimestamp, data) {
     client = await pool.connect();
     await client.query("BEGIN");
 
+    // Ambil received_at LAMA (kalau ada) SEBELUM di-upsert — buat hitung
+    // gap. Row lock (FOR UPDATE) biar aman dari race kalau kebetulan ada
+    // 2 push nyaris bareng buat source+type yang sama (jarang, tapi murah
+    // buat dijamin).
+    const prev = await client.query(
+      `SELECT received_at FROM subcont_push_latest
+       WHERE source = $1 AND type = $2 FOR UPDATE`,
+      [source, type],
+    );
+
     await client.query(
       `INSERT INTO subcont_push_latest (source, type, payload_timestamp, received_at, data)
        VALUES ($1, $2, $3, NOW(), $4)
@@ -57,6 +77,17 @@ async function savePush(source, type, payloadTimestamp, data) {
     );
 
     await client.query("COMMIT");
+
+    if (prev.rows.length > 0) {
+      const gapMs = Date.now() - new Date(prev.rows[0].received_at).getTime();
+      if (gapMs > GAP_WARN_MS) {
+        console.warn(
+          `⚠️  Gap push terdeteksi: ${source}/${type} — ${gapMs}ms (ambang: ${GAP_WARN_MS}ms). ` +
+            `Status dashboard buat type ini sempat/bakal kelihatan "Belum Dikonfigurasi" di jendela ini.`,
+        );
+      }
+    }
+
     return { ok: true };
   } catch (err) {
     // client mungkin masih undefined kalau yang gagal itu pool.connect()
