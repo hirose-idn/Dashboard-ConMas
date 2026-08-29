@@ -56,7 +56,18 @@ function Clock() {
 }
 
 // ─── Header utama dashboard ───────────────────────────────
-export default function DashboardHeader({ loading, error, line, nama_produk }) {
+// `historical` + `viewedDate` diisi cuma pas dashboard ini dibuka dari
+// Master Dashboard yang lagi di-backdate (lihat App.jsx/PCBDashboard.jsx) —
+// judul & status kanan-atas berubah biar operator/manajemen gak salah kira
+// ini data LIVE, padahal lagi liat rekap hari yang udah lewat.
+export default function DashboardHeader({
+  loading,
+  error,
+  line,
+  nama_produk,
+  historical,
+  viewedDate,
+}) {
   return (
     <div
       style={{
@@ -90,12 +101,36 @@ export default function DashboardHeader({ loading, error, line, nama_produk }) {
             textShadow: `0 0 30px ${C.blue}88`,
           }}
         >
-          TAMPILAN DATA PRODUKSI REAL-TIME
+          {historical
+            ? `REKAP DATA PRODUKSI · ${viewedDate || "—"}`
+            : "TAMPILAN DATA PRODUKSI REAL-TIME"}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {error ? (
             <span style={{ fontSize: 8, color: C.red }}>⚠ {error}</span>
+          ) : historical ? (
+            <>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: C.orange,
+                  display: "inline-block",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 8,
+                  color: C.orange,
+                  letterSpacing: "0.1em",
+                  fontWeight: 700,
+                }}
+              >
+                {loading ? "MEMUAT..." : "HISTORIS · bukan live"}
+              </span>
+            </>
           ) : (
             <>
               <span

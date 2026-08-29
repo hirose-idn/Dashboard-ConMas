@@ -6,12 +6,17 @@ import LeftColumn from "./LeftColumn";
 import CenterColumn from "./CenterColumn";
 import RightColumn from "./RightColumn";
 
-export default function PCBDashboard({ line, remoteSource }) {
+export default function PCBDashboard({ line, remoteSource, date }) {
   // remoteSource ("sgp" | "systech") diisi cuma kalau halaman ini dibuka
   // dari Master Hub pas klik line subcont (lihat MasterDashboard.jsx
   // LineRow + App.jsx selectLine) — bikin hook fetch lewat proxy Master,
   // bukan endpoint lokal (yang gak akan nemu line itu di DB Master).
-  const d = useDashboardData(line, remoteSource);
+  //
+  // `date` (YYYY-MM-DD) opsional — diisi cuma pas halaman ini dibuka dari
+  // Master Dashboard yang lagi di-backdate (lihat App.jsx selectLine +
+  // MasterDashboard.jsx rankingDate). Kosong = behavior lama, live ikut
+  // shift yang lagi jalan sekarang.
+  const d = useDashboardData(line, remoteSource, date);
 
   // PCBDashboard ini yang ditampilin di TV/kiosk lantai produksi — SENGAJA
   // dipaksa dark TERUS, ga peduli setting tema global lagi light atau dark
@@ -62,6 +67,8 @@ export default function PCBDashboard({ line, remoteSource }) {
           error={d.error}
           line={d.line}
           nama_produk={d.nama_produk}
+          historical={d.historical}
+          viewedDate={d.tanggal}
         />
 
         <div

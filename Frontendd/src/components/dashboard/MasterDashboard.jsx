@@ -1828,7 +1828,25 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
                           // lihat useDashboardData.js mode remote) — jadi
                           // TIDAK di-nonaktifin lagi kayak sebelumnya, cukup
                           // dikasih tau sumbernya via remoteSourceKey.
-                          onSelect={onSelect}
+                          //
+                          // rankingDate ikut dikirim SEBAGAI backdate kalau
+                          // beda dari hari ini — biar klik line pas lagi
+                          // liat Ranking Line hari kemarin/lampau, PCBDashboard
+                          // yang kebuka nampilin REKAP hari itu, bukan live
+                          // hari ini (App.jsx selectLine → ?date=...).
+                          // Line SGP/Systech (remoteSourceKey ada) BELUM
+                          // support ini — proxy Master masih versi ringkas
+                          // (lihat useDashboardData.js), jadi date di-skip
+                          // di kasus itu biar gak salah nampilin data.
+                          onSelect={(code, remoteKey) =>
+                            onSelect(
+                              code,
+                              remoteKey,
+                              !remoteKey && rankingDate !== todayWibStr
+                                ? rankingDate
+                                : undefined,
+                            )
+                          }
                           remoteSourceKey={
                             isRemoteViaMaster ? remoteSourceKey : undefined
                           }

@@ -55,6 +55,58 @@ const {
   hourToLabel,
 } = require("../utils/shiftResolver");
 
+// ─────────────────────────────────────────────────────────────
+//  Backdate support — GET /, /reject-detail, /monthly semua terima
+//  optional ?date=YYYY-MM-DD (dikirim PCBDashboard pas dibuka dari
+//  Master Dashboard yg lagi di-backdate, lihat MasterDashboard.jsx
+//  rankingDate + App.jsx selectLine + useDashboardData.js).
+//
+//  Trik: fungsi2 shiftResolver (resolveShiftAndDate/pickActiveRow/dst)
+//  semua nerima "wib" (jam WIB SAAT INI) buat nentuin shift mana yang
+//  lagi aktif. Kita gak perlu ubah logic-nya sama sekali — cukup pura2
+//  "sekarang" itu jam 23:59 di TANGGAL yang diminta, jadi shift yg
+//  "aktif" otomatis jadi shift TERAKHIR hari itu (= hasil akhir/final
+//  hari itu, pas buat dilihat retroaktif). Kalau ?date= gak dikirim
+//  (live/kiosk normal), balik ke wib = sekarang beneran, gak ada yang
+//  berubah dari behavior lama.
+function resolveWib(req) {
+  const dateParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || "")
+    ? req.query.date
+    : null;
+  if (dateParam) {
+    return {
+      wib: new Date(`${dateParam}T23:59:00.000Z`),
+      isHistorical: true,
+      dateParam,
+    };
+  }
+  return {
+    wib: new Date(Date.now() + 7 * 3600 * 1000),
+    isHistorical: false,
+    dateParam: null,
+  };
+}
+
+// pickActiveRow punya fallback "row PALING BARU yang udah selesai" kalau
+// row buat shift yang lagi dicari beneran gak ketemu — masuk akal buat mode
+// LIVE (shift baru mulai, data belum sempet keinput, tampilin data shift
+// sebelumnya sambil nunggu). Tapi buat mode BACKDATE ini bahaya: kalau data
+// tanggal yang diminta emang belum/gak ada, dia diem2 nampilin data tanggal
+// LAIN tanpa ada tanda apa2 (row.tanggal ke-render apa adanya di FE) — user
+// ngira lagi liat tanggal yang dia minta padahal enggak.
+// Makanya di mode historis (dateParam ada), row HARUS match persis tanggal
+// yang diminta — kalau row hasil pickActiveRow ternyata tanggal lain,
+// treat sebagai "gak ada data buat tanggal ini" (null), BUKAN ditampilin
+// nyasar ke tanggal lain.
+function enforceExactDateIfHistorical(row, dateParam) {
+  if (!row || !dateParam) return row;
+  const rowDateStr =
+    row.tanggal instanceof Date
+      ? row.tanggal.toISOString().slice(0, 10)
+      : String(row.tanggal).slice(0, 10);
+  return rowDateStr === dateParam ? row : null;
+}
+
 // Rekapitulasi per jam — 25 slot FISIK (urutan kolom cluster_1_XXX di bawah
 // FIXED, sama buat semua instance — ini layout form ConMas asli, slot ke-1
 // s.d. ke-25 SEKUENSIAL, bukan jam absolut).
@@ -172,7 +224,7 @@ router.get("/", async (req, res) => {
       });
     }
 
-    const wib = new Date(Date.now() + 7 * 3600 * 1000);
+    const { wib, isHistorical, dateParam } = resolveWib(req);
     // shift_scheme dari config CUMA dipakai buat fallback pas row BENERAN
     // belum ada sama sekali (nentuin threshold "not running"). Buat NYARI
     // row-nya sendiri, kita GAK nebak label shift dari config lagi — lihat
@@ -230,7 +282,10 @@ router.get("/", async (req, res) => {
       todayStr,
       yesterday,
     ]);
-    const row = pickActiveRow(result.rows, wib, "shift");
+    const row = enforceExactDateIfHistorical(
+      pickActiveRow(result.rows, wib, "shift"),
+      dateParam,
+    );
 
     // Shift & tanggal buat ditampilkan diambil dari ROW ASLI kalau ketemu
     // (bukan tebakan config) — fallback ke hasil tebakan cuma kalau
@@ -266,6 +321,7 @@ router.get("/", async (req, res) => {
           nowWIB: wib,
         }),
         availability_operator: null,
+        historical: isHistorical,
       });
     }
 
@@ -380,6 +436,7 @@ router.get("/", async (req, res) => {
       availability_operator: availabilityOperator,
       hourly: hourlyForDisplay,
       timestamp: new Date().toISOString(),
+      historical: isHistorical,
     });
   } catch (error) {
     console.error("Error query dashboard:", error.message);
@@ -412,7 +469,7 @@ router.get("/monthly", async (req, res) => {
       });
     }
 
-    const wib = new Date(Date.now() + 7 * 3600 * 1000);
+    const { wib } = resolveWib(req);
     const year = wib.getUTCFullYear();
     const month = wib.getUTCMonth() + 1;
 
@@ -494,7 +551,7 @@ router.get("/reject-detail", async (req, res) => {
       });
     }
 
-    const wib = new Date(Date.now() + 7 * 3600 * 1000);
+    const { wib, dateParam } = resolveWib(req);
     const yesterday = new Date(wib.getTime() - 86_400_000)
       .toISOString()
       .slice(0, 10);
@@ -520,7 +577,10 @@ router.get("/reject-detail", async (req, res) => {
       todayStr,
       yesterday,
     ]);
-    const row = pickActiveRow(result.rows, wib, "shift");
+    const row = enforceExactDateIfHistorical(
+      pickActiveRow(result.rows, wib, "shift"),
+      dateParam,
+    );
 
     if (!row) {
       return res.json({ success: true, date: todayStr, data: [] });

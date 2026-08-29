@@ -16,6 +16,10 @@ function getUrlState() {
     // Diisi cuma kalau line yang dibuka itu punya DB di instance SUBCONT
     // (diklik dari Master Hub) — lihat selectLine() & PCBDashboard remoteSource.
     source: params.get("source"),
+    // Diisi cuma kalau line dibuka dari Master Dashboard yang lagi di-
+    // backdate (lihat selectLine() & MasterDashboard.jsx rankingDate) —
+    // PCBDashboard pakai ini buat minta data tanggal itu, bukan live.
+    date: params.get("date"),
   };
 }
 
@@ -27,7 +31,13 @@ export default function App() {
   // Line di Master Hub, lihat MasterDashboard.jsx). Line Internal biasa
   // (dari LinePicker/tabel lokal) tetap panggil selectLine(code) tanpa
   // argumen ke-2, persis kayak sebelumnya.
-  const selectLine = useCallback((code, remoteSourceKey) => {
+  //
+  // backdate opsional (YYYY-MM-DD) — diisi cuma pas diklik dari tabel
+  // Ranking Line di Master Dashboard YANG LAGI di-backdate (rankingDate
+  // != hari ini, lihat MasterDashboard.jsx). Kalau Master Dashboard-nya
+  // lagi nampilin hari ini, param ini gak dikirim (undefined) → PCBDashboard
+  // tetap live kayak sebelumnya, gak ada behavior yang berubah.
+  const selectLine = useCallback((code, remoteSourceKey, backdate) => {
     const url = new URL(window.location.href);
     url.searchParams.set("line", code);
     url.searchParams.delete("view");
@@ -37,8 +47,19 @@ export default function App() {
     } else {
       url.searchParams.delete("source");
     }
+    if (backdate) {
+      url.searchParams.set("date", backdate);
+    } else {
+      url.searchParams.delete("date");
+    }
     window.history.pushState({}, "", url);
-    setUrlState({ line: code, view: null, tempat: null, source: remoteSourceKey || null });
+    setUrlState({
+      line: code,
+      view: null,
+      tempat: null,
+      source: remoteSourceKey || null,
+      date: backdate || null,
+    });
   }, []);
 
   // `tempat` opsional — diisi cuma pas Internal buka "Dashboard Utama"
@@ -112,7 +133,11 @@ export default function App() {
 
   if (urlState.line) {
     return (
-      <PCBDashboard line={urlState.line} remoteSource={urlState.source} />
+      <PCBDashboard
+        line={urlState.line}
+        remoteSource={urlState.source}
+        date={urlState.date}
+      />
     );
   }
   // ⚠️ "Master Hub" narik /api/master/* buat AGREGASI 3 lokasi — cuma

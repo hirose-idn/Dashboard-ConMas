@@ -42,6 +42,7 @@ const INITIAL_STATE = {
   lastRefresh: null,
   loading: true,
   error: null,
+  historical: false,
 };
 
 // Parse field "NIK,Nama" dari DB → { nik, nama }
@@ -63,15 +64,25 @@ function buildFotoUrl(nik) {
   return `${BASE_URL}/foto/${nik}.jpg`;
 }
 
-export default function useDashboardData(lineCode, remoteSource) {
+// `date` opsional (YYYY-MM-DD) — diisi cuma pas dashboard per-line ini
+// dibuka dari Master Dashboard yang lagi di-backdate (lihat App.jsx
+// selectLine + MasterDashboard.jsx rankingDate). Kalau kosong, behavior
+// PERSIS kayak sebelumnya (live, ikut shift yang lagi jalan SEKARANG).
+// ⚠️ Mode remote (proxy lewat Master buat line SGP/Systech) BELUM support
+// backdate — proxy /api/master/dashboard/line-* itu "versi ringkas" yang
+// juga skip reject-detail/foto, jadi date di-skip di situ, konsisten sama
+// batasan yang udah ada.
+export default function useDashboardData(lineCode, remoteSource, date) {
   const [state, setState] = useState(INITIAL_STATE);
+  const isHistorical = Boolean(date) && !remoteSource;
 
   const refresh = useCallback(async () => {
     if (!lineCode) return; // belum pilih line, jangan fetch apa-apa
 
     try {
       const today = getTodayWIB();
-      const lineQS = `line=${encodeURIComponent(lineCode)}`;
+      const dateQS = isHistorical ? `&date=${encodeURIComponent(date)}` : "";
+      const lineQS = `line=${encodeURIComponent(lineCode)}${dateQS}`;
 
       // ── remoteSource diisi (mis. "sgp"/"systech") → line ini punya
       // DB di instance SUBCONT, bukan lokal Master. Fetch lewat proxy
@@ -135,8 +146,12 @@ export default function useDashboardData(lineCode, remoteSource) {
       let rejectDetailData = null;
       if (!isRemote) {
         try {
+          // lineQS udah bawa &date=... sendiri kalau isHistorical; jangan
+          // dobel nempelin ?date= lagi (bakal keoverride/konflik di backend).
           const rejectRes = await fetch(
-            `${BASE_URL}/api/dashboard/reject-detail?${lineQS}&date=${today}`,
+            isHistorical
+              ? `${BASE_URL}/api/dashboard/reject-detail?${lineQS}`
+              : `${BASE_URL}/api/dashboard/reject-detail?${lineQS}&date=${today}`,
           );
           if (rejectRes.ok) {
             const rejectJson = await rejectRes.json();
@@ -220,18 +235,23 @@ export default function useDashboardData(lineCode, remoteSource) {
           micro_stop: null,
           proses_bermasalah: [],
         },
+        historical: Boolean(d.historical),
       }));
     } catch (err) {
       console.error("Dashboard fetch error:", err.message);
       setState((prev) => ({ ...prev, loading: false, error: err.message }));
     }
-  }, [lineCode, remoteSource]);
+  }, [lineCode, remoteSource, date, isHistorical]);
 
   useEffect(() => {
     refresh();
+    // Data historis (tanggal yang udah lewat) gak bakal berubah lagi —
+    // gak perlu di-poll tiap REFRESH_MS kayak mode live/kiosk. Cukup fetch
+    // sekali pas line/date-nya ganti.
+    if (isHistorical) return;
     const timer = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, isHistorical]);
 
   return state;
 }
