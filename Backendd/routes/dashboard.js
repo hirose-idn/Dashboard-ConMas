@@ -282,6 +282,24 @@ router.get("/", async (req, res) => {
       todayStr,
       yesterday,
     ]);
+    // 🔍 DEBUG SEMENTARA — buat lacak bug "data ada di summary-all-daily
+    // tapi GET / bilang no_data". Cek log server (console) pas hit endpoint
+    // ini, lalu HAPUS blok ini kalau udah ketemu akar masalahnya.
+    if (isHistorical) {
+      console.log("[DEBUG /api/dashboard]", {
+        lineCode,
+        tempat: lineConfig.tempat,
+        todayStr,
+        yesterday,
+        rowsFound: result.rows.length,
+        rawTanggal: result.rows.map((r) =>
+          r.tanggal instanceof Date
+            ? r.tanggal.toISOString()
+            : String(r.tanggal),
+        ),
+        rawShift: result.rows.map((r) => r.shift),
+      });
+    }
     const row = enforceExactDateIfHistorical(
       pickActiveRow(result.rows, wib, "shift", isHistorical ? dateParam : null),
       dateParam,
