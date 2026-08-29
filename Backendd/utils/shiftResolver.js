@@ -308,8 +308,62 @@ function getShiftSlotLabels(scheme, shiftNum, dow) {
 //   3. Row yang shift text-nya gak kebaca format-nya (rusak/kosong)
 //      diabaikan dari perbandingan jam, tapi tetap dianggap "ada data".
 // shiftCol: nama key di row yang isinya literal kolom shift DB.
-function pickActiveRow(rows, nowWIB, shiftCol = "shift") {
+//
+// exactDateParam (opsional, "YYYY-MM-DD"): diisi CUMA pas mode HISTORIS
+// (?date=... dari FE, lihat dashboard.js resolveWib). ⚠️ FIX bug "data ada
+// tapi kebaca 'Tidak ada data produksi'": tanpa param ini, fungsi SELALU
+// pakai heuristik "current shift SEKARANG" di atas — yang bergantung total
+// ke parsing teks kolom shift row itu SENDIRI. Kalau shift text row buat
+// tanggal yang diminta kosong/format-nya gak standar (lumrah kejadian di
+// input manual), row itu ke-skip (`if (!parsed) continue`), dan
+// pickActiveRow bisa nyasar milih row TANGGAL LAIN (kemarin) yang
+// text-nya kebetulan kebaca — yang lalu ditolak enforceExactDateIfHistorical
+// karena tanggalnya gak cocok, hasil akhirnya "gak ada data" PADAHAL row
+// buat tanggal itu ADA di DB (cuma shift text-nya yang berantakan).
+//
+// Buat historis kita gak perlu nebak "shift mana yang lagi aktif" sama
+// sekali — tanggalnya udah PASTI (exactDateParam), jadi cukup filter row
+// yang tanggalnya PAS match, apapun isi/format kolom shift-nya. Kalau ada
+// lebih dari 1 row tanggal sama (line 2/3-shift, tiap shift punya row
+// sendiri), ambil yang PALING AKHIR hari itu (hasil final/akumulasi
+// terakhir) — masih coba baca shift text buat nentuin "paling akhir"
+// SECARA URUTAN JAM, tapi row yang text-nya gak kebaca tetap ikut jadi
+// kandidat (bukan di-skip kayak mode live), fallback ke row TERAKHIR di
+// array kalau semua row tanggal itu shift text-nya gak kebaca satupun.
+function pickActiveRow(rows, nowWIB, shiftCol = "shift", exactDateParam = null) {
   if (!rows || rows.length === 0) return null;
+
+  if (exactDateParam) {
+    const sameDate = rows.filter((row) => {
+      const tanggalStr =
+        row.tanggal instanceof Date
+          ? row.tanggal.toISOString().slice(0, 10)
+          : String(row.tanggal).slice(0, 10);
+      return tanggalStr === exactDateParam;
+    });
+    if (sameDate.length === 0) return null;
+    if (sameDate.length === 1) return sameDate[0];
+
+    let best = null;
+    let bestEnd = null;
+    for (const row of sameDate) {
+      const parsed = parseShiftLabel(row[shiftCol]);
+      if (!parsed) continue; // dipertimbangkan lewat fallback di bawah, bukan di-skip permanen
+      const { endWIB } = shiftWindowFromLabel(
+        exactDateParam,
+        parsed.scheme,
+        parsed.shiftNum,
+      );
+      if (!bestEnd || endWIB > bestEnd) {
+        bestEnd = endWIB;
+        best = row;
+      }
+    }
+    // Gak ada satupun row tanggal ini yang shift text-nya kebaca —
+    // fallback ke row TERAKHIR di array (asumsi urutan input form =
+    // urutan array dari DB, jadi yang terakhir = yang paling baru/final).
+    return best || sameDate[sameDate.length - 1];
+  }
 
   let current = null;
   let mostRecentEnded = null;

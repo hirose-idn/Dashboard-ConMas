@@ -283,10 +283,9 @@ router.get("/", async (req, res) => {
       yesterday,
     ]);
     const row = enforceExactDateIfHistorical(
-      pickActiveRow(result.rows, wib, "shift"),
+      pickActiveRow(result.rows, wib, "shift", isHistorical ? dateParam : null),
       dateParam,
     );
-
     // Shift & tanggal buat ditampilkan diambil dari ROW ASLI kalau ketemu
     // (bukan tebakan config) — fallback ke hasil tebakan cuma kalau
     // beneran gak ada row apa pun buat line ini di 2 hari terakhir.
@@ -307,19 +306,30 @@ router.get("/", async (req, res) => {
         : fallbackShiftStartWIB;
 
     if (!row) {
+      // ⚠️ FIX bug "LINE TIDAK RUNNING" nongol di rekap historis: dulu di
+      // sini SELALU pakai getLineStatus3() versi LIVE ("udah berapa menit
+      // dari jam mulai shift SEKARANG row-nya belum ada") — logic itu cuma
+      // masuk akal buat live/kiosk. Buat tanggal yang UDAH LEWAT, "belum
+      // ada data masuk" itu bukan tanda sistem lagi macet, cuma berarti
+      // line itu emang gak ada row produksi di tanggal tsb (row-nya mmg
+      // gak ada, bukan "lagi nunggu"). Kasih status baru "no_data" khusus
+      // historis, biar FE nampilin pesan tenang, BUKAN alarm blink merah
+      // full-screen ala live (lihat PCBDashboard.jsx).
       return res.json({
         success: true,
         data: null,
         line: lineCode,
         shift,
         tanggal: targetDate,
-        line_not_running: lineNotRunning,
-        line_status: getLineStatus3({
-          hasRow: false,
-          hourly: null,
-          shiftStartWIB: fallbackShiftStartWIB,
-          nowWIB: wib,
-        }),
+        line_not_running: isHistorical ? false : lineNotRunning,
+        line_status: isHistorical
+          ? "no_data"
+          : getLineStatus3({
+              hasRow: false,
+              hourly: null,
+              shiftStartWIB: fallbackShiftStartWIB,
+              nowWIB: wib,
+            }),
         availability_operator: null,
         historical: isHistorical,
       });
@@ -578,7 +588,7 @@ router.get("/reject-detail", async (req, res) => {
       yesterday,
     ]);
     const row = enforceExactDateIfHistorical(
-      pickActiveRow(result.rows, wib, "shift"),
+      pickActiveRow(result.rows, wib, "shift", dateParam),
       dateParam,
     );
 

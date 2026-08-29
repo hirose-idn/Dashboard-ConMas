@@ -111,7 +111,17 @@ export default function PCBDashboard({ line, remoteSource, date }) {
           />
         </div>
 
-        {d.line_status === "not_running" && (
+        {/* ⚠️ FIX: alarm full-screen blink merah ini KHUSUS live/kiosk — dulu
+            cuma cek line_status === "not_running" tanpa peduli lagi liat data
+            HARI INI atau REKAP tanggal yg udah lewat (?date=...). Efeknya:
+            buka rekap historis yang emang gak ada row produksi tanggal itu
+            (atau line sempet berhenti tengah shift hari itu) numpang alarm
+            "LINE TIDAK RUNNING" berkedip persis kayak sistem lagi macet
+            LIVE — padahal itu cuma catatan masa lalu, bukan kejadian
+            sekarang. `!d.historical` masukin syarat: alarm ini CUMA nyala
+            kalau beneran lagi mantau live. Untuk historis, lihat badge
+            tenang di bawah (line_status "no_data" / "not_running"). */}
+        {d.line_status === "not_running" && !d.historical && (
           <div
             style={{
               position: "fixed",
@@ -140,6 +150,51 @@ export default function PCBDashboard({ line, remoteSource, date }) {
             <div style={{ fontSize: 20, color: C.textDim, letterSpacing: "0.05em" }}>
               Line {d.line || "—"} · {d.shift || "—"} · belum ada data masuk lebih dari 1 jam
             </div>
+          </div>
+        )}
+        {/* Versi historis dari kondisi di atas — badge kecil pojok kanan
+            atas, BUKAN full-screen alarm (ini rekap tanggal lewat, gak ada
+            yang perlu "direspon sekarang" kayak live). "no_data" = beneran
+            gak ada row produksi tanggal ini (line libur/gak jalan). 
+            "not_running" (historis) = row ADA tapi kedetek berhenti input
+            di tengah shift hari itu — tetap info yang berguna, cuma gak
+            perlu bikin panik. */}
+        {d.historical && d.line_status === "no_data" && (
+          <div
+            style={{
+              position: "fixed",
+              top: 16,
+              right: 16,
+              background: `${C.textDim}22`,
+              border: `1px solid ${C.textDim}`,
+              color: C.textDim,
+              fontSize: 13,
+              fontWeight: 700,
+              padding: "6px 14px",
+              borderRadius: 20,
+              zIndex: 999,
+            }}
+          >
+            Tidak ada data produksi pada tanggal ini
+          </div>
+        )}
+        {d.historical && d.line_status === "not_running" && (
+          <div
+            style={{
+              position: "fixed",
+              top: 16,
+              right: 16,
+              background: `${C.orange}22`,
+              border: `1px solid ${C.orange}`,
+              color: C.orange,
+              fontSize: 13,
+              fontWeight: 700,
+              padding: "6px 14px",
+              borderRadius: 20,
+              zIndex: 999,
+            }}
+          >
+            ⚠ Ada indikasi line berhenti di tengah shift ini
           </div>
         )}
         {/* "waiting" (row shift blm ada tapi masih wajar, awal shift) SENGAJA
