@@ -42,6 +42,16 @@ const fs = require("fs");
 app.get("/foto-resolve/:nik", (req, res) => {
   const fotoDir = path.join(__dirname, "uploads", "foto");
   const nik = req.params.nik;
+  // ⚠️ FIX path traversal: express decode param ini (termasuk "%2f" jadi
+  // "/"), jadi ":nik" bisa aja kebawa "../../etc/passwd" walau URL asalnya
+  // cuma 1 segment. Sebelum ini langsung dipake di path.join() tanpa
+  // validasi apapun — sekalipun hasil akhirnya selalu ditempelin ekstensi
+  // (.jpg dst) yang bikin exploitasinya kepentok, tetep gak boleh dibiarin
+  // nembus keluar folder uploads/foto. NIK Hirose cuma angka/huruf, jadi
+  // whitelist karakter aman aja (tanpa "/", "\", atau "..").
+  if (!/^[a-zA-Z0-9_-]+$/.test(nik)) {
+    return res.status(400).json({ message: "NIK tidak valid", nik });
+  }
   const exts = ["jpeg", "jpg", "png", "webp"];
   for (const ext of exts) {
     const filePath = path.join(fotoDir, `${nik}.${ext}`);
