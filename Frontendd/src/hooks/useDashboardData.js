@@ -33,9 +33,9 @@ const INITIAL_STATE = {
   // ── Mock ──────────────────────────────────────────
   ...MOCK_DATA,
   personnel: {
-    ketua: { nama: null, no_karyawan: null, telp: null, foto: null },
+    ketua: { nama: null, no_karyawan: null, telp: null, foto: null, fotoFallback: null },
     pj_teknis: { nama: null, no_karyawan: null, telp: null, foto: null },
-    inspector: { nama: null, no_karyawan: null, telp: null, foto: null },
+    inspector: { nama: null, no_karyawan: null, telp: null, foto: null, fotoFallback: null },
   },
   reject_detail: null,
   // ── State ─────────────────────────────────────────
@@ -57,12 +57,21 @@ function parsePersonnelField(raw) {
     : { nik: null, nama: raw.trim() };
 }
 
-function buildFotoUrl(nik) {
+function buildFotoUrl(nik, role) {
   if (!nik) return null;
   // Avatar component (ui/index.jsx) yang coba2 ekstensi .jpg/.jpeg/.png/.webp
   // sendiri lewat onError — jadi di sini cukup kasih base .jpg, JANGAN pakai
   // /foto-resolve (gak ada ekstensinya, gak kompatibel sama logic Avatar).
-  return `${BASE_URL}/foto/${nik}.jpg`;
+  //
+  // `role` OPSIONAL — dipake buat kasus 1 NIK bisa jadi 2 role beda
+  // seragam/foto (misal: Cell Leader kerudung biru vs Inspector kerudung
+  // kuning). Kalau diisi, base filename jadi "<nik>_<role>.jpg" (contoh:
+  // "1234_cellleader.jpg", "1234_inspector.jpg"). File ini OPSIONAL untuk
+  // di-upload — kalau belum ada, Avatar otomatis jatuh ke foto generic
+  // "<nik>.jpg" lewat prop `fotoFallback` (lihat call site di bawah),
+  // JADI TIDAK ADA REGRESI buat orang yang cuma pernah 1 role/1 foto.
+  const base = role ? `${nik}_${role}` : nik;
+  return `${BASE_URL}/foto/${base}.jpg`;
 }
 
 // `date` opsional (YYYY-MM-DD) — diisi cuma pas dashboard per-line ini
@@ -210,20 +219,29 @@ export default function useDashboardData(lineCode, remoteSource, date, shiftOver
             nama: parsedKetua.nama || prev.personnel?.ketua?.nama || null,
             no_karyawan: ketuaNik || prev.personnel?.ketua?.no_karyawan || null,
             telp: prev.personnel?.ketua?.telp || null,
-            foto: buildFotoUrl(ketuaNik),
+            // Role "cellleader" — coba <nik>_cellleader.jpg dulu, fallback
+            // ke <nik>.jpg generic kalau belum ada (lihat Avatar di
+            // ui/index.jsx & catatan di buildFotoUrl di atas).
+            foto: buildFotoUrl(ketuaNik, "cellleader"),
+            fotoFallback: buildFotoUrl(ketuaNik),
           },
           pj_teknis: {
             nama: parsedTeknisi.nama || prev.personnel?.pj_teknis?.nama || null,
             no_karyawan:
               teknisiNik || prev.personnel?.pj_teknis?.no_karyawan || null,
             telp: prev.personnel?.pj_teknis?.telp || null,
+            // PJ Teknis belum ada kasus ganti-ganti seragam kayak Cell
+            // Leader/Inspector — generic doang, gak perlu role.
             foto: buildFotoUrl(teknisiNik),
           },
           inspector: {
             nama: parsedInspector.nama || null,
             no_karyawan: inspectorNik || null,
             telp: null,
-            foto: buildFotoUrl(inspectorNik),
+            // Role "inspector" — coba <nik>_inspector.jpg dulu, fallback
+            // ke <nik>.jpg generic kalau belum ada.
+            foto: buildFotoUrl(inspectorNik, "inspector"),
+            fotoFallback: buildFotoUrl(inspectorNik),
           },
         },
         reject_detail: rejectDetailData,

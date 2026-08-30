@@ -100,7 +100,12 @@ function PersonelCard({ icon, title, data, live }) {
           gap: 6,
         }}
       >
-        <Avatar foto={data?.foto} nama={nama} size={60} />
+        <Avatar
+          foto={data?.foto}
+          fotoFallback={data?.fotoFallback}
+          nama={nama}
+          size={60}
+        />
         <div
           style={{
             fontWeight: 800,

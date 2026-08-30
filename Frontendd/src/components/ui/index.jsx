@@ -113,17 +113,29 @@ export function ProgressBar({ pct, color, label }) {
 // Ekstensi yang dicoba secara berurutan kalau .jpg gagal
 const FOTO_EXTS = ["jpg", "jpeg", "png", "webp"];
 
-export function Avatar({ foto, nama, size = 48 }) {
-  // foto = URL dasar dengan ekstensi .jpg dari hook
-  // Kalau gagal, Avatar mencoba ekstensi berikutnya, lalu fallback ke inisial
+export function Avatar({ foto, fotoFallback, nama, size = 48 }) {
+  // foto = URL dasar (TANPA ekstensi final, dihapus di bawah) dari hook.
+  // Dulu cuma 1 base URL yang dicoba (4 ekstensi berurutan). Sekarang ada
+  // 2 TINGKAT base URL:
+  //  1. `foto`         — biasanya foto ROLE-SPECIFIC, misal
+  //                      <nik>_cellleader.jpg (kerudung biru) atau
+  //                      <nik>_inspector.jpg (kerudung kuning) — dipake
+  //                      buat kasus 1 orang bisa jadi 2 role beda seragam.
+  //  2. `fotoFallback` — foto GENERIC <nik>.jpg, dicoba kalau foto
+  //                      role-specific di atas gak ketemu di ekstensi
+  //                      manapun (belum di-upload / orang itu cuma 1 role).
+  // Kalau ujung-ujungnya dua-duanya gagal, baru jatuh ke inisial seperti
+  // biasa. Behavior LAMA (cuma `foto` doang, gak ada `fotoFallback`) tetep
+  // jalan sama persis — tingkat ke-2 cuma aktif kalau prop-nya diisi.
+  const bases = [foto, fotoFallback]
+    .filter(Boolean)
+    .map((url) => url.replace(/\.[^.]+$/, "")); // hapus ekstensi masing2
+  const [attemptIdx, setAttemptIdx] = React.useState(0);
 
-  const baseUrl = foto ? foto.replace(/\.[^.]+$/, "") : null; // hapus ekstensi
-  const [extIdx, setExtIdx] = React.useState(0);
-
-  // Reset saat foto prop berubah (ganti karyawan)
+  // Reset saat foto/fotoFallback prop berubah (ganti karyawan atau ganti role)
   React.useEffect(() => {
-    setExtIdx(0);
-  }, [foto]);
+    setAttemptIdx(0);
+  }, [foto, fotoFallback]);
 
   const initials = (nama || "")
     .split(" ")
@@ -132,9 +144,11 @@ export function Avatar({ foto, nama, size = 48 }) {
     .slice(0, 2)
     .toUpperCase();
 
-  const allFailed = extIdx >= FOTO_EXTS.length;
-  const currentSrc =
-    baseUrl && !allFailed ? `${baseUrl}.${FOTO_EXTS[extIdx]}` : null;
+  const totalAttempts = bases.length * FOTO_EXTS.length;
+  const allFailed = attemptIdx >= totalAttempts;
+  const baseUrl = bases[Math.floor(attemptIdx / FOTO_EXTS.length)];
+  const ext = FOTO_EXTS[attemptIdx % FOTO_EXTS.length];
+  const currentSrc = baseUrl && !allFailed ? `${baseUrl}.${ext}` : null;
 
   return (
     <div
@@ -158,7 +172,7 @@ export function Avatar({ foto, nama, size = 48 }) {
           src={currentSrc}
           alt={nama}
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          onError={() => setExtIdx((i) => i + 1)} // coba ekstensi berikutnya
+          onError={() => setAttemptIdx((i) => i + 1)} // coba kombinasi berikutnya (ekstensi, lalu fallback generic)
         />
       ) : (
         <span style={{ fontSize: size * 0.3, fontWeight: 800, color: C.blue }}>
