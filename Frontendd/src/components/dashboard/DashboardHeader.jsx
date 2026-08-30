@@ -67,6 +67,9 @@ export default function DashboardHeader({
   nama_produk,
   historical,
   viewedDate,
+  availableShifts,
+  shiftOverride,
+  onShiftChange,
 }) {
   return (
     <div
@@ -130,6 +133,42 @@ export default function DashboardHeader({
               >
                 {loading ? "MEMUAT..." : "HISTORIS · bukan live"}
               </span>
+              {/* Toggle Shift 1/2/dst — CUMA muncul kalau tanggal yang lagi
+                  dibuka beneran punya >1 shift dengan data (availableShifts
+                  dari backend, lihat GET / dashboard.js). Ditaro nempel di
+                  bawah badge HISTORIS biar jelas relasinya "ini rekap
+                  historis, dan tanggal ini ada beberapa shift, pilih yang
+                  mana". Kalau cuma 1 shift (atau belum tau), gak usah
+                  nampilin apa-apa — gak perlu bikin bingung. */}
+              {Array.isArray(availableShifts) && availableShifts.length > 1 && (
+                <div style={{ display: "flex", gap: 4, marginLeft: 6 }}>
+                  {availableShifts.map((num) => {
+                    const active =
+                      shiftOverride == null
+                        ? num === availableShifts[availableShifts.length - 1]
+                        : String(shiftOverride) === String(num);
+                    return (
+                      <button
+                        key={num}
+                        onClick={() => onShiftChange?.(num)}
+                        style={{
+                          fontSize: 8,
+                          fontWeight: 700,
+                          letterSpacing: "0.05em",
+                          padding: "2px 8px",
+                          borderRadius: 10,
+                          border: `1px solid ${active ? C.blue : C.border}`,
+                          background: active ? `${C.blue}22` : "transparent",
+                          color: active ? C.blue : C.textDim,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Shift {num}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </>
           ) : (
             <>

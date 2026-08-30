@@ -43,6 +43,7 @@ const INITIAL_STATE = {
   loading: true,
   error: null,
   historical: false,
+  available_shifts: [],
 };
 
 // Parse field "NIK,Nama" dari DB → { nik, nama }
@@ -72,7 +73,7 @@ function buildFotoUrl(nik) {
 // backdate — proxy /api/master/dashboard/line-* itu "versi ringkas" yang
 // juga skip reject-detail/foto, jadi date di-skip di situ, konsisten sama
 // batasan yang udah ada.
-export default function useDashboardData(lineCode, remoteSource, date) {
+export default function useDashboardData(lineCode, remoteSource, date, shiftOverride) {
   const [state, setState] = useState(INITIAL_STATE);
   const isHistorical = Boolean(date) && !remoteSource;
 
@@ -81,7 +82,12 @@ export default function useDashboardData(lineCode, remoteSource, date) {
 
     try {
       const today = getTodayWIB();
-      const dateQS = isHistorical ? `&date=${encodeURIComponent(date)}` : "";
+      // shiftOverride ("1"/"2"/dst, opsional) — CUMA relevan pas historis;
+      // biarin backend milih shift terakhir hari itu kalau kosong (lihat
+      // toggle Shift 1/2 di PCBDashboard.jsx).
+      const shiftQS =
+        isHistorical && shiftOverride ? `&shift=${encodeURIComponent(shiftOverride)}` : "";
+      const dateQS = isHistorical ? `&date=${encodeURIComponent(date)}${shiftQS}` : "";
       const lineQS = `line=${encodeURIComponent(lineCode)}${dateQS}`;
 
       // ── remoteSource diisi (mis. "sgp"/"systech") → line ini punya
@@ -236,12 +242,13 @@ export default function useDashboardData(lineCode, remoteSource, date) {
           proses_bermasalah: [],
         },
         historical: Boolean(d.historical),
+        available_shifts: Array.isArray(d.available_shifts) ? d.available_shifts : [],
       }));
     } catch (err) {
       console.error("Dashboard fetch error:", err.message);
       setState((prev) => ({ ...prev, loading: false, error: err.message }));
     }
-  }, [lineCode, remoteSource, date, isHistorical]);
+  }, [lineCode, remoteSource, date, shiftOverride, isHistorical]);
 
   useEffect(() => {
     refresh();

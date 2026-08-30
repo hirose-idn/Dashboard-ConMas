@@ -325,12 +325,17 @@ function getShiftSlotLabels(scheme, shiftNum, dow) {
 // sekali — tanggalnya udah PASTI (exactDateParam), jadi cukup filter row
 // yang tanggalnya PAS match, apapun isi/format kolom shift-nya. Kalau ada
 // lebih dari 1 row tanggal sama (line 2/3-shift, tiap shift punya row
-// sendiri), ambil yang PALING AKHIR hari itu (hasil final/akumulasi
-// terakhir) — masih coba baca shift text buat nentuin "paling akhir"
-// SECARA URUTAN JAM, tapi row yang text-nya gak kebaca tetap ikut jadi
-// kandidat (bukan di-skip kayak mode live), fallback ke row TERAKHIR di
-// array kalau semua row tanggal itu shift text-nya gak kebaca satupun.
-function pickActiveRow(rows, nowWIB, shiftCol = "shift", exactDateParam = null) {
+// sendiri):
+//   - shiftNumOverride diisi (user milih toggle "Shift 1"/"Shift 2" di FE,
+//     lihat PCBDashboard.jsx) → ambil row yang shift-nya PERSIS itu (kalau
+//     gak ketemu, balik null — biar FE bisa bilang "Shift segini gak ada
+//     datanya", bukan diem2 nampilin shift lain yang salah).
+//   - shiftNumOverride kosong (default, belum milih toggle apa2) → ambil
+//     yang PALING AKHIR hari itu (hasil final/akumulasi terakhir) — masih
+//     coba baca shift text buat nentuin "paling akhir" SECARA URUTAN JAM,
+//     fallback ke row terakhir array kalau semua row tanggal itu shift
+//     text-nya gak kebaca satupun.
+function pickActiveRow(rows, nowWIB, shiftCol = "shift", exactDateParam = null, shiftNumOverride = null) {
   if (!rows || rows.length === 0) return null;
 
   if (exactDateParam) {
@@ -342,6 +347,16 @@ function pickActiveRow(rows, nowWIB, shiftCol = "shift", exactDateParam = null) 
       return tanggalStr === exactDateParam;
     });
     if (sameDate.length === 0) return null;
+
+    if (shiftNumOverride != null) {
+      const wanted = String(shiftNumOverride);
+      const match = sameDate.find((row) => {
+        const parsed = parseShiftLabel(row[shiftCol]);
+        return parsed && String(parsed.shiftNum) === wanted;
+      });
+      return match || null;
+    }
+
     if (sameDate.length === 1) return sameDate[0];
 
     let best = null;

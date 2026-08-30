@@ -16,7 +16,19 @@ export default function PCBDashboard({ line, remoteSource, date }) {
   // Master Dashboard yang lagi di-backdate (lihat App.jsx selectLine +
   // MasterDashboard.jsx rankingDate). Kosong = behavior lama, live ikut
   // shift yang lagi jalan sekarang.
-  const d = useDashboardData(line, remoteSource, date);
+  //
+  // Toggle Shift 1/2/dst — CUMA relevan pas historis (tanggal yang punya
+  // >1 shift, lihat diskusi soal Breakdown Line 10.726 vs detail 5.760).
+  // Direset ke null (= "shift terakhir hari itu", default lama) tiap kali
+  // line/date ganti, biar gak "nyangkut" milih Shift 2 pas pindah ke line
+  // atau tanggal lain yang mungkin cuma punya Shift 1.
+  const [shiftOverride, setShiftOverride] = useState(null);
+  const prevLineDateRef = useRef(`${line}|${date}`);
+  if (prevLineDateRef.current !== `${line}|${date}`) {
+    prevLineDateRef.current = `${line}|${date}`;
+    if (shiftOverride !== null) setShiftOverride(null);
+  }
+  const d = useDashboardData(line, remoteSource, date, shiftOverride);
 
   // PCBDashboard ini yang ditampilin di TV/kiosk lantai produksi — SENGAJA
   // dipaksa dark TERUS, ga peduli setting tema global lagi light atau dark
@@ -69,6 +81,9 @@ export default function PCBDashboard({ line, remoteSource, date }) {
           nama_produk={d.nama_produk}
           historical={d.historical}
           viewedDate={d.tanggal}
+          availableShifts={d.available_shifts}
+          shiftOverride={shiftOverride}
+          onShiftChange={setShiftOverride}
         />
 
         <div
@@ -176,6 +191,29 @@ export default function PCBDashboard({ line, remoteSource, date }) {
             }}
           >
             Tidak ada data produksi pada tanggal ini
+          </div>
+        )}
+        {/* Beda sama "no_data" (SELURUH tanggal itu kosong) — ini kejadian
+            pas user klik toggle Shift 1/2 (lihat DashboardHeader.jsx) buat
+            shift yang gak ada row-nya di tanggal ini, misal tanggal itu
+            cuma jalan Shift 1 tapi user lagi nge-klik toggle "Shift 2". */}
+        {d.historical && d.line_status === "shift_not_found" && (
+          <div
+            style={{
+              position: "fixed",
+              top: 16,
+              right: 16,
+              background: `${C.textDim}22`,
+              border: `1px solid ${C.textDim}`,
+              color: C.textDim,
+              fontSize: 13,
+              fontWeight: 700,
+              padding: "6px 14px",
+              borderRadius: 20,
+              zIndex: 999,
+            }}
+          >
+            Shift ini tidak beroperasi pada tanggal ini
           </div>
         )}
         {d.historical && d.line_status === "not_running" && (

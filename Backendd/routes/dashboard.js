@@ -225,6 +225,13 @@ router.get("/", async (req, res) => {
     }
 
     const { wib, isHistorical, dateParam } = resolveWib(req);
+    // ?shift= (opsional, CUMA dipakai pas historis) — user toggle Shift 1/2
+    // di FE buat tanggal yang punya >1 shift (lihat komentar panjang di
+    // pickActiveRow, shiftResolver.js). Kosong = default behavior lama
+    // (ambil shift TERAKHIR hari itu).
+    const shiftOverrideParam = isHistorical
+      ? (req.query.shift || "").trim() || null
+      : null;
     // shift_scheme dari config CUMA dipakai buat fallback pas row BENERAN
     // belum ada sama sekali (nentuin threshold "not running"). Buat NYARI
     // row-nya sendiri, kita GAK nebak label shift dari config lagi — lihat
@@ -282,28 +289,38 @@ router.get("/", async (req, res) => {
       todayStr,
       yesterday,
     ]);
-    // 🔍 DEBUG SEMENTARA — buat lacak bug "data ada di summary-all-daily
-    // tapi GET / bilang no_data". Cek log server (console) pas hit endpoint
-    // ini, lalu HAPUS blok ini kalau udah ketemu akar masalahnya.
-    if (isHistorical) {
-      console.log("[DEBUG /api/dashboard]", {
-        lineCode,
-        tempat: lineConfig.tempat,
-        todayStr,
-        yesterday,
-        rowsFound: result.rows.length,
-        rawTanggal: result.rows.map((r) =>
-          r.tanggal instanceof Date
-            ? r.tanggal.toISOString()
-            : String(r.tanggal),
-        ),
-        rawShift: result.rows.map((r) => r.shift),
-      });
-    }
     const row = enforceExactDateIfHistorical(
-      pickActiveRow(result.rows, wib, "shift", isHistorical ? dateParam : null),
+      pickActiveRow(
+        result.rows,
+        wib,
+        "shift",
+        isHistorical ? dateParam : null,
+        shiftOverrideParam,
+      ),
       dateParam,
     );
+    // Buat toggle Shift 1/2/dst di FE (PCBDashboard.jsx) — daftar NOMOR
+    // shift yang beneran ADA row-nya di tanggal yang diminta, apapun hasil
+    // pickActiveRow di atas. Diambil dari result.rows MENTAH (belum
+    // difilter shiftOverrideParam), biar tetep muncul walau row yang lagi
+    // ditampilkan sekarang null (shift_not_found) — FE masih bisa nawarin
+    // "coba Shift 1" dst.
+    const availableShifts = isHistorical
+      ? [
+          ...new Set(
+            result.rows
+              .filter((r) => {
+                const t =
+                  r.tanggal instanceof Date
+                    ? r.tanggal.toISOString().slice(0, 10)
+                    : String(r.tanggal).slice(0, 10);
+                return t === dateParam;
+              })
+              .map((r) => parseShiftLabel(r.shift)?.shiftNum)
+              .filter((n) => n != null),
+          ),
+        ].sort((a, b) => a - b)
+      : [];
     // Shift & tanggal buat ditampilkan diambil dari ROW ASLI kalau ketemu
     // (bukan tebakan config) — fallback ke hasil tebakan cuma kalau
     // beneran gak ada row apa pun buat line ini di 2 hari terakhir.
@@ -313,7 +330,9 @@ router.get("/", async (req, res) => {
       ? row.tanggal instanceof Date
         ? row.tanggal.toISOString().slice(0, 10)
         : String(row.tanggal).slice(0, 10)
-      : fallbackDate;
+      : isHistorical
+        ? dateParam
+        : fallbackDate;
     // shiftStartWIB buat cek stale (isRowStale) dihitung dari LABEL ASLI
     // row itu sendiri kalau kebaca, biar jam yang dibandingin bener-bener
     // cocok sama shift row ini — bukan tebakan config yang mungkin beda.
@@ -333,6 +352,21 @@ router.get("/", async (req, res) => {
       // gak ada, bukan "lagi nunggu"). Kasih status baru "no_data" khusus
       // historis, biar FE nampilin pesan tenang, BUKAN alarm blink merah
       // full-screen ala live (lihat PCBDashboard.jsx).
+      //
+      // "shift_not_found" beda kasus lagi: dipakai pas user toggle
+      // shiftOverrideParam ("Shift 1"/"Shift 2") buat tanggal yang row-nya
+      // ADA tapi bukan shift yang diminta itu (mis. tanggal itu cuma ada
+      // Shift 1, user klik toggle Shift 2) — biar FE bisa bilang persis
+      // "Shift 2 gak ada datanya di tanggal ini", bukan disamain kayak
+      // "no_data" yang artinya SELURUH tanggal itu kosong.
+      const shiftReallyMissing =
+        isHistorical && shiftOverrideParam && result.rows.some((r) => {
+          const t =
+            r.tanggal instanceof Date
+              ? r.tanggal.toISOString().slice(0, 10)
+              : String(r.tanggal).slice(0, 10);
+          return t === dateParam;
+        });
       return res.json({
         success: true,
         data: null,
@@ -341,7 +375,9 @@ router.get("/", async (req, res) => {
         tanggal: targetDate,
         line_not_running: isHistorical ? false : lineNotRunning,
         line_status: isHistorical
-          ? "no_data"
+          ? shiftReallyMissing
+            ? "shift_not_found"
+            : "no_data"
           : getLineStatus3({
               hasRow: false,
               hourly: null,
@@ -350,6 +386,7 @@ router.get("/", async (req, res) => {
             }),
         availability_operator: null,
         historical: isHistorical,
+        available_shifts: availableShifts,
       });
     }
 
@@ -465,6 +502,7 @@ router.get("/", async (req, res) => {
       hourly: hourlyForDisplay,
       timestamp: new Date().toISOString(),
       historical: isHistorical,
+      available_shifts: availableShifts,
     });
   } catch (error) {
     console.error("Error query dashboard:", error.message);
@@ -579,7 +617,18 @@ router.get("/reject-detail", async (req, res) => {
       });
     }
 
-    const { wib, dateParam } = resolveWib(req);
+    const { wib, dateParam, isHistorical } = resolveWib(req);
+    // ⚠️ FIX bug "reject detail gak nyambung sama toggle Shift 1/2": dulu
+    // endpoint ini gak pernah baca ?shift= sama sekali, jadi SELALU ambil
+    // shift TERAKHIR hari itu (behavior default pickActiveRow) — gak peduli
+    // toggle yang lagi aktif di GET / (lihat DashboardHeader.jsx). Efeknya:
+    // toggle ke Shift 1 di panel utama, tapi "Detail Reject" tetep nampilin
+    // punya Shift 2 (sering keliatan 0/kosong padahal shift yang lagi
+    // dilihat beneran ada reject-nya). Sekarang baca ?shift= yang sama
+    // persis kayak dikirim ke GET / (lihat useDashboardData.js lineQS).
+    const shiftOverrideParam = isHistorical
+      ? (req.query.shift || "").trim() || null
+      : null;
     const yesterday = new Date(wib.getTime() - 86_400_000)
       .toISOString()
       .slice(0, 10);
@@ -606,7 +655,7 @@ router.get("/reject-detail", async (req, res) => {
       yesterday,
     ]);
     const row = enforceExactDateIfHistorical(
-      pickActiveRow(result.rows, wib, "shift", dateParam),
+      pickActiveRow(result.rows, wib, "shift", dateParam, shiftOverrideParam),
       dateParam,
     );
 
@@ -614,13 +663,21 @@ router.get("/reject-detail", async (req, res) => {
       return res.json({ success: true, date: todayStr, data: [] });
     }
 
-    // Agregasi qty per nama defect (skip slot kosong/nama null)
+    // ⚠️ FIX bug "13 reject di kartu utama, tapi Detail Reject cuma nunjuk
+    // 3": dulu slot yang QTY-nya keisi tapi NAMA defect-nya kosong
+    // (operator kadang buru-buru nulis angka doang, lupa/skip isi nama)
+    // di-skip TOTAL dari agregasi (`if (!rawName) return`) — qty-nya diem2
+    // ilang dari tampilan walau datanya beneran ADA di DB. Sekarang slot
+    // tanpa nama tetep dihitung, dikumpulin ke 1 bucket "Tidak ada nama
+    // defect" — biar QA/Cell Leader tau ada reject yang belum
+    // dikategorikan, bukan ngira datanya cuma segitu.
+    const UNNAMED_LABEL = "⚠ Tidak ada nama defect (qty tercatat, nama kosong)";
     const agg = new Map();
     REJECT_PAIRS.forEach((_, i) => {
       const rawName = row[`r${i}_name`];
-      if (!rawName || !String(rawName).trim()) return;
-      const key = String(rawName).trim();
       const qty = Number(row[`r${i}_qty`]) || 0;
+      if (qty <= 0) return; // slot beneran kosong (qty 0/null), bukan cuma nama kosong
+      const key = rawName && String(rawName).trim() ? String(rawName).trim() : UNNAMED_LABEL;
       agg.set(key, (agg.get(key) || 0) + qty);
     });
 
