@@ -1,10 +1,8 @@
 import React from 'react';
 
-// ============================================================
 // Helper: hitung default tanggal berdasarkan jam sekarang
 // Shift 1 → hari ini
 // Shift 2 → kemarin (jam 00-21) atau hari ini (jam 22-23)
-// ============================================================
 export function getDefaultDates() {
   const now = new Date();
   const hour = now.getHours();
@@ -27,9 +25,7 @@ export function getDefaultDates() {
   };
 }
 
-// ============================================================
 // DateFilter Component
-// ============================================================
 const DateFilter = ({ shift1Date, shift2Date, onShift1DateChange, onShift2DateChange }) => {
   const defaults = getDefaultDates();
 

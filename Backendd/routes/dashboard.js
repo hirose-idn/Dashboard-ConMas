@@ -3,44 +3,25 @@ const router = express.Router();
 const pool = require("../db");
 const { getPoolForTempat } = pool;
 
-// ─────────────────────────────────────────────────────────────
-//  KONFIGURASI — PCB general (semua line pakai view yang sama,
-//  dibedain lewat kolom Line). Line aktif + shift scheme-nya
-//  (2/3 shift) disimpan di tabel "lines" (lihat routes/lines.js),
-//  BUKAN hardcode — supaya nambah line baru gak perlu deploy ulang.
-// ─────────────────────────────────────────────────────────────
-// VIEW & COLS sekarang di config/reportColumns.js (di-require di bawah,
-// dekat COLS lama) supaya bisa dipakai bareng routes/api-external.js.
+// Line aktif + shift scheme-nya (2/3 shift) disimpan di tabel "lines"
+// (routes/lines.js), BUKAN hardcode — supaya nambah line baru gak perlu deploy ulang.
 
-// ⚠️ Eksperimen lama: satu backend narik banyak "tempat" (Internal/SGP/
-// Systech) lewat view/pool berbeda dalam 1 app. DITINGGALKAN — sekarang tiap
-// subcont deploy instance Dashboard ConMas SENDIRI (server + DB sendiri),
-// dan Hirose narik ringkasan mereka lewat HTTP API (lihat routes/api-external.js
-// + Master Dashboard). Fungsi di bawah cuma dipertahankan sebagai no-op biar
-// pemanggil lama (getViewForTempat/getPoolForTempat) di file ini tetap jalan
-// tanpa perlu diubah satu-satu — semua balik ke VIEW & pool lokal biasa.
+// ⚠️ Eksperimen lama (satu backend narik banyak "tempat" lewat view/pool
+// beda) DITINGGALKAN — tiap subcont sekarang deploy instance sendiri, Hirose
+// narik ringkasannya lewat HTTP API (routes/api-external.js). Fungsi di
+// bawah dipertahankan sebagai no-op biar pemanggil lama tetap jalan.
 function getViewForTempat(_tempat) {
   return VIEW;
 }
 
-// getLineConfig & getAllLines di-extract ke utils/linesRegistry.js supaya
-// bisa dipakai bareng routes/lines.js & routes/api-external.js tanpa duplikasi.
 const { getAllLines, getLineConfig } = require("../utils/linesRegistry");
 
-// ─────────────────────────────────────────────────────────────
-//  MAPPING KOLOM
-//  (VIEW & COLS di-extract ke config/reportColumns.js — lihat catatan di
-//  atas soal getViewForTempat. Row 17/Line masih perlu dicek: form ConMas
-//  row itu field text/dropdown, atau ID numeric yang representasiin '41HR101'?)
-// ─────────────────────────────────────────────────────────────
+// TODO: Row 17/Line masih perlu dicek — form ConMas row itu field
+// text/dropdown, atau ID numeric yang representasiin '41HR101'?
 const { VIEW, COLS, REJECT_PAIRS } = require("../config/reportColumns");
 
-// SLOTS & getLineRangeBreakdown sekarang di services/lineBreakdownService.js
-// (satu-satunya definisi, dipakai bareng sama endpoint di bawah + api-external.js).
 const { SLOTS, getLineRangeBreakdown } = require("../services/lineBreakdownService");
 
-// resolveShiftAndDate & isLineNotRunning di-extract ke utils/shiftResolver.js
-// supaya bisa dipakai bareng routes/api-external.js tanpa duplikasi.
 // ⚠️ Import ini WAJIB ada SEBELUM definisi HOURLY di bawah (butuh
 // hourToLabel buat generate label-nya) — jangan dipindah balik ke bawah.
 const {
@@ -55,20 +36,15 @@ const {
   hourToLabel,
 } = require("../utils/shiftResolver");
 
-// ─────────────────────────────────────────────────────────────
-//  Backdate support — GET /, /reject-detail, /monthly semua terima
-//  optional ?date=YYYY-MM-DD (dikirim PCBDashboard pas dibuka dari
-//  Master Dashboard yg lagi di-backdate, lihat MasterDashboard.jsx
-//  rankingDate + App.jsx selectLine + useDashboardData.js).
+// Backdate support — GET /, /reject-detail, /monthly semua terima optional
+// ?date=YYYY-MM-DD (dikirim PCBDashboard pas dibuka dari Master Dashboard
+// yg lagi di-backdate).
 //
-//  Trik: fungsi2 shiftResolver (resolveShiftAndDate/pickActiveRow/dst)
-//  semua nerima "wib" (jam WIB SAAT INI) buat nentuin shift mana yang
-//  lagi aktif. Kita gak perlu ubah logic-nya sama sekali — cukup pura2
-//  "sekarang" itu jam 23:59 di TANGGAL yang diminta, jadi shift yg
-//  "aktif" otomatis jadi shift TERAKHIR hari itu (= hasil akhir/final
-//  hari itu, pas buat dilihat retroaktif). Kalau ?date= gak dikirim
-//  (live/kiosk normal), balik ke wib = sekarang beneran, gak ada yang
-//  berubah dari behavior lama.
+// Trik: fungsi2 shiftResolver butuh "wib" (jam WIB SAAT INI) buat nentuin
+// shift mana yang aktif. Daripada ubah logic-nya, kita pura-pura "sekarang"
+// itu jam 23:59 di TANGGAL yang diminta — shift "aktif" otomatis jadi shift
+// TERAKHIR hari itu (hasil final, pas buat dilihat retroaktif). Tanpa
+// ?date=, wib = sekarang beneran (behavior live normal).
 function resolveWib(req) {
   const dateParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || "")
     ? req.query.date
@@ -185,7 +161,6 @@ function hourlyColKey(i) {
   return `h${i}`;
 }
 
-// ─────────────────────────────────────────────────────────────
 //  LOGIC SHIFT — generic per shift_scheme (2 atau 3)
 //
 //  2 Shift: Shift 1: 07:00–16:00 (Jumat s.d. 17:00)
@@ -200,11 +175,8 @@ function hourlyColKey(i) {
 //
 //  ⚠️ Value kolom `shift` di DB bentuknya "Shift 1 (2 Shift)",
 //  "Shift 2 (3 Shift)", dst — ada suffix scheme.
-// ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────
 //  GET /?line=... — data shift aktif untuk line yang diminta
-// ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
     const lineCode = (req.query.line || "").trim();
@@ -514,10 +486,8 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /monthly?line=... — akumulasi reject & output sebulan
 //  (gabung semua shift, karena qty_reject ada di tiap row)
-// ─────────────────────────────────────────────────────────────
 router.get("/monthly", async (req, res) => {
   try {
     const lineCode = (req.query.line || "").trim();
@@ -579,7 +549,6 @@ router.get("/monthly", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /reject-detail?line=... — breakdown qty reject per nama
 //  defect, buat panel "Detail Reject" di kanan dashboard per-line.
 //
@@ -598,7 +567,6 @@ router.get("/monthly", async (req, res) => {
 //  Agregasi per nama (bukan langsung per-slot) soalnya operator
 //  bisa aja nulis nama defect yang sama di lebih dari 1 slot dalam
 //  1 shift (nambah reject yang sama beberapa kali submit).
-// ─────────────────────────────────────────────────────────────
 router.get("/reject-detail", async (req, res) => {
   try {
     const lineCode = (req.query.line || "").trim();
@@ -698,7 +666,6 @@ router.get("/reject-detail", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /summary-all — ringkasan SEMUA line aktif sekaligus,
 //  dipakai buat Master Dashboard (overview banyak line dalam
 //  1 layar). Sengaja dipisah dari "GET /" yang detail per-line,
@@ -715,7 +682,6 @@ router.get("/reject-detail", async (req, res) => {
 //  alfabetis. Kalau nanti ada kriteria "bermasalah" lain (reject
 //  tinggi dst, begitu ada threshold dari management), tinggal
 //  ditambah di bagian sort di bawah.
-// ─────────────────────────────────────────────────────────────
 router.get("/summary-all", async (req, res) => {
   try {
     const filterTempat = (req.query.tempat || "").trim() || null;
@@ -854,7 +820,6 @@ router.get("/summary-all", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /summary-by-tempat — agregasi per tempat (Internal/SGP/Systech)
 //  Dipakai buat tabel akumulasi Master Dashboard baru.
 //  Return 3 row maks, masing-masing berisi:
@@ -862,7 +827,6 @@ router.get("/summary-all", async (req, res) => {
 //    - total output_plan, output_actual, pct_achievement
 //    - avg_oee, total_qty_reject, total_stoptime
 //    - preview: 5 line teratas (prioritas tidak running)
-// ─────────────────────────────────────────────────────────────
 router.get("/summary-by-tempat", async (req, res) => {
   try {
     const allLines = getAllLines();
@@ -1041,14 +1005,12 @@ router.get("/summary-by-tempat", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /hourly-trend?tempat= — agregasi output per jam
 //  Dipakai buat line chart trend di Master Dashboard.
 //  Return array 25 slot { label, plan, actual } di mana:
 //    - plan   = SUM output plan semua line aktif per slot
 //    - actual = SUM output actual semua line aktif per slot
 //    - slot yang semua line-nya NULL → plan=0, actual=0, hasData=false
-// ─────────────────────────────────────────────────────────────
 router.get("/hourly-trend", async (req, res) => {
   try {
     const filterTempat = (req.query.tempat || "").trim() || null;
@@ -1125,13 +1087,11 @@ router.get("/hourly-trend", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /daily-trend?tempat=&year=&month=
 //  Trend output harian dalam 1 bulan, dipakai buat line chart
 //  di Master Dashboard. Return array per tanggal:
 //    { date, plan, actual, hasData }
 //  Difilter by tempat (opsional). Year & month default ke bulan berjalan WIB.
-// ─────────────────────────────────────────────────────────────
 router.get("/daily-trend", async (req, res) => {
   try {
     const filterTempat = (req.query.tempat || "").trim() || null;
@@ -1216,13 +1176,11 @@ router.get("/daily-trend", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /monthly-summary?tempat=&year=&month=
 //  Agregasi SATU BULAN PENUH (bukan per-hari) buat KPI card
 //  bulanan + breakdown 4M bulanan di Master Dashboard.
 //  Difilter by tempat (opsional, sama kayak /daily-trend).
 //  Year & month default ke bulan berjalan WIB.
-// ─────────────────────────────────────────────────────────────
 router.get("/monthly-summary", async (req, res) => {
   try {
     const filterTempat = (req.query.tempat || "").trim() || null;
@@ -1355,7 +1313,6 @@ router.get("/monthly-summary", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /summary-all-monthly?tempat=&year=&month= — ringkasan SATU BULAN
 //  PENUH per line (bukan cuma shift/hari berjalan), dipakai buat tabel
 //  ranking "Top Output Terendah / Top Reject Terbanyak / Top Stoptime
@@ -1365,7 +1322,6 @@ router.get("/monthly-summary", async (req, res) => {
 //  (kondisi line saat endpoint dipanggil), karena "sedang jalan atau
 //  tidak" itu konsepnya sesaat, bukan sesuatu yang bisa diakumulasi
 //  sebulan. Year & month default ke bulan berjalan WIB.
-// ─────────────────────────────────────────────────────────────
 router.get("/summary-all-monthly", async (req, res) => {
   try {
     const filterTempat = (req.query.tempat || "").trim() || null;
@@ -1439,7 +1395,6 @@ router.get("/summary-all-monthly", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /line-range-breakdown?tempat=&start=&end= — breakdown PER LINE
 //  buat CUSTOM DATE RANGE bebas (start/end format YYYY-MM-DD, boleh
 //  lintas bulan). Beda dari /summary-all-monthly (terkunci 1 bulan
@@ -1447,7 +1402,6 @@ router.get("/summary-all-monthly", async (req, res) => {
 //  reject/bekidoritsu/deviasi) SEKALIGUS breakdown plan/actual PER
 //  TANGGAL — dipakai tabel "Breakdown per Line" yang bisa discroll
 //  ke samping (1 pasang kolom Plan/Actual per tanggal).
-// ─────────────────────────────────────────────────────────────
 router.get("/line-range-breakdown", async (req, res) => {
   try {
     const filterTempat = (req.query.tempat || "").trim() || null;
@@ -1470,13 +1424,11 @@ router.get("/line-range-breakdown", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /summary-all-daily?date=YYYY-MM-DD — akumulasi per line UNTUK
 //  1 TANGGAL SPESIFIK (gabung semua shift di tanggal itu). Dipakai buat
 //  panel "Ranking Line" di Master Dashboard yang butuh ranking harian,
 //  bukan bulanan — mirip /summary-all-monthly tapi filter tanggal persis,
 //  bukan EXTRACT year/month.
-// ─────────────────────────────────────────────────────────────
 router.get("/summary-all-daily", async (req, res) => {
   try {
     const filterTempat = (req.query.tempat || "").trim() || null;

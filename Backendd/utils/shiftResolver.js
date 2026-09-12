@@ -1,9 +1,6 @@
 // Tanggung jawab: nentuin shift aktif + tanggal row DB + jam mulai shift,
 // berdasarkan jam WIB sekarang dan shift_scheme (2 atau 3) satu line.
 //
-// Diextract dari routes/dashboard.js (awalnya didefinisikan inline di situ)
-// supaya bisa dipakai bareng sama routes/api-external.js tanpa duplikasi.
-//
 // ⚠️ Value kolom `shift` di DB bentuknya "Shift 1 (2 Shift)",
 //  "Shift 2 (3 Shift)", dst — ada suffix scheme.
 //
@@ -133,7 +130,6 @@ function isLineNotRunning(nowWIB, shiftStartWIB) {
   return elapsedMin > NOT_RUNNING_THRESHOLD_MIN;
 }
 
-// ─────────────────────────────────────────────────────────────
 // getLineStatus3 — versi 3-state dari isLineNotRunning/isRowStale di bawah.
 // Dulu cuma 2 state (Running/Tidak Running), dan kasus "row belum ada tapi
 // masih di bawah threshold" ke-lumped jadi "Running" — padahal jujurnya itu
@@ -153,7 +149,6 @@ function getLineStatus3({ hasRow, hourly, shiftStartWIB, nowWIB }) {
   return isRowStale(hourly, shiftStartWIB, nowWIB) ? "not_running" : "running";
 }
 
-// ─────────────────────────────────────────────────────────────
 // isRowStale — deteksi "row ADA tapi udah gak ada input BARU".
 //
 // Kenapa perlu: isLineNotRunning() di atas cuma nangkep kasus row-nya

@@ -1,16 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 
-// ═══════════════════════════════════════════════════════════
 //  CONFIG
-// ═══════════════════════════════════════════════════════════
 const BASE_URL = "http://localhost:5000"; // sesuaikan port backend
 const REFRESH_MS = 5_000;
 const TARGET = 2400;
 
-// ═══════════════════════════════════════════════════════════
 //  MOCK — hanya untuk field yang BELUM ada di backend
 //  Hapus / ganti satu per satu kalau endpoint sudah siap
-// ═══════════════════════════════════════════════════════════
 const MOCK_ONLY = {
   waktu_siklus_standar: 19,
   waktu_siklus_aktual: 25.1,
@@ -146,9 +142,7 @@ const MOCK_ONLY = {
   ],
 };
 
-// ═══════════════════════════════════════════════════════════
 //  HOOK — fetch data real dari backend
-// ═══════════════════════════════════════════════════════════
 function useDashboardData() {
   const [state, setState] = useState({
     // ── Data dari backend (real) ──
@@ -670,9 +664,7 @@ const EvalCard = ({ label, value, color, noBorder, badge }) => (
   </div>
 );
 
-// ═══════════════════════════════════════════════════════════
 //  MAIN
-// ═══════════════════════════════════════════════════════════
 export default function PCBDashboard() {
   const d = useDashboardData();
 

@@ -2,18 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { BASE_URL, REFRESH_MS, MOCK_DATA } from "../config/constants";
 import { getTodayWIB } from "../config/utils";
 
-// ─── Status integrasi per field ──────────────────────────────
-// ✅ Backend (/api/dashboard) sekarang sudah nentuin sendiri shift
-//    aktif + tanggal yg relevan (termasuk shift 2 lewat tengah malam),
-//    jadi FE gak perlu lagi logic getActiveShift() / cari row manual.
-// ✅ hourly udah ikut nempel di response /api/dashboard (gak perlu /trend lagi)
-// ✅ reject-detail sekarang live dari /api/dashboard/reject-detail
-//    (150 slot pasangan qty/nama defect, lihat REJECT_PAIRS di
-//    backend config/reportColumns.js)
-// ────────────────────────────────────────────────────────────
-
 const INITIAL_STATE = {
-  // ── Live ──────────────────────────────────────────
   tanggal: null,
   line: null,
   cl_no: null,
@@ -30,7 +19,7 @@ const INITIAL_STATE = {
   hourly: [],
   line_not_running: false,
   line_status: "running",
-  // ── Mock ──────────────────────────────────────────
+
   ...MOCK_DATA,
   personnel: {
     ketua: { nama: null, no_karyawan: null, telp: null, foto: null, fotoFallback: null },
@@ -38,7 +27,7 @@ const INITIAL_STATE = {
     inspector: { nama: null, no_karyawan: null, telp: null, foto: null, fotoFallback: null },
   },
   reject_detail: null,
-  // ── State ─────────────────────────────────────────
+
   lastRefresh: null,
   loading: true,
   error: null,
@@ -59,17 +48,14 @@ function parsePersonnelField(raw) {
 
 function buildFotoUrl(nik, role) {
   if (!nik) return null;
-  // Avatar component (ui/index.jsx) yang coba2 ekstensi .jpg/.jpeg/.png/.webp
-  // sendiri lewat onError — jadi di sini cukup kasih base .jpg, JANGAN pakai
-  // /foto-resolve (gak ada ekstensinya, gak kompatibel sama logic Avatar).
+  // Avatar component (ui/index.jsx) coba2 ekstensi .jpg/.jpeg/.png/.webp
+  // sendiri lewat onError — cukup kasih base .jpg di sini, JANGAN pakai
+  // /foto-resolve (gak kompatibel sama logic Avatar).
   //
-  // `role` OPSIONAL — dipake buat kasus 1 NIK bisa jadi 2 role beda
-  // seragam/foto (misal: Cell Leader kerudung biru vs Inspector kerudung
-  // kuning). Kalau diisi, base filename jadi "<nik>_<role>.jpg" (contoh:
-  // "1234_cellleader.jpg", "1234_inspector.jpg"). File ini OPSIONAL untuk
-  // di-upload — kalau belum ada, Avatar otomatis jatuh ke foto generic
-  // "<nik>.jpg" lewat prop `fotoFallback` (lihat call site di bawah),
-  // JADI TIDAK ADA REGRESI buat orang yang cuma pernah 1 role/1 foto.
+  // `role` OPSIONAL — buat kasus 1 NIK bisa punya 2 role beda seragam/foto
+  // (mis. Cell Leader vs Inspector). Kalau diisi, filename jadi
+  // "<nik>_<role>.jpg"; kalau belum ada file-nya, Avatar fallback ke foto
+  // generic "<nik>.jpg" lewat prop `fotoFallback`.
   const base = role ? `${nik}_${role}` : nik;
   return `${BASE_URL}/foto/${base}.jpg`;
 }

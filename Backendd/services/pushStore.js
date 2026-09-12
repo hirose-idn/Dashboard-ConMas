@@ -11,14 +11,11 @@
 
 const { pool, configured } = require("../db-sync");
 
-// Sama kayak PUSH_FALLBACK_MAX_AGE_MS di sourceClient.js (env var yang
-// sama, biar 1 sumber kebenaran) — dipakai buat nge-log WARNING kalau
-// jarak antar push yang sukses (source+type yang sama) ngelewatin
-// threshold ini. Ini persis threshold yang nentuin status di dashboard
-// Master flip ke "Belum Dikonfigurasi" — jadi log ini nyatet KAPAN
-// persisnya status itu sempat/bakal flip, walau gak ada yang lagi
-// mantengin dashboard pas kejadian. Cek riwayatnya: `pm2 logs <master>
-// | grep "Gap push"`.
+// Threshold buat nge-log WARNING kalau jarak antar push sukses (source+type
+// sama) ngelewatin ambang ini — persis threshold yang bikin status di
+// dashboard Master flip ke "Belum Dikonfigurasi". Sama env var kayak
+// PUSH_FALLBACK_MAX_AGE_MS di sourceClient.js (1 sumber kebenaran).
+// Cek riwayat: `pm2 logs <master> | grep "Gap push"`.
 const GAP_WARN_MS = Number(process.env.PUSH_FALLBACK_MAX_AGE_MS) || 5 * 60 * 1000;
 
 async function savePush(source, type, payloadTimestamp, data) {

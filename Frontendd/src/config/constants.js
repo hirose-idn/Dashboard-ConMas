@@ -7,13 +7,10 @@ export const BASE_URL =
   process.env.REACT_APP_API_URL ??
   (process.env.NODE_ENV === "production" ? "" : "http://localhost:5000");
 // Identitas instance ini di FRONTEND — dipakai buat nge-hide tombol
-// "Dashboard Utama"/"Master Hub" (keduanya manggil /api/master/*, yang
-// cuma valid diliat dari instance Hirose) pas instance ini bukan
-// "internal", dan buat lompat LANGSUNG ke Breakdown per Line lokal
-// (lihat LinePicker.jsx + App.jsx). Isi REACT_APP_SOURCE_NAME di
-// Frontendd/.env.production sesuai SOURCE_NAME punya backend
-// (internal | sgp | systech) — kalau kosong, default "internal" (aman,
-// sama kayak behavior lama sebelum flag ini ada).
+// "Dashboard Utama"/"Master Hub" (cuma valid di instance Hirose) pas
+// instance ini bukan "internal". Isi REACT_APP_SOURCE_NAME di
+// Frontendd/.env.production sesuai SOURCE_NAME backend; kosong = default
+// "internal".
 export const SOURCE_NAME = (
   process.env.REACT_APP_SOURCE_NAME || "internal"
 ).toLowerCase();
@@ -26,14 +23,10 @@ export const TEMPAT_LABEL =
 export const REFRESH_MS = 60_000; // server ConMas update tiap jam, refresh tiap 1 menit cukup
 export const FOTO_BASE_URL = `${BASE_URL}/foto`;
 
-// ─────────────────────────────────────────────
-//  Design tokens — 2 tema:
-//    DARK  = tema asli (dark cyan), buat operator shift/ruangan gelap
-//    LIGHT = tema terang & kontras tinggi, buat orang tua / manajemen —
-//            biru-vs-oranye/merah-tua (bukan hijau-vs-merah) supaya
-//            tetap kebaca walau ada gangguan penglihatan warna, dan
-//            teks gelap di atas latar terang (lebih nyaman dibaca lama)
-// ─────────────────────────────────────────────
+// DARK = tema asli (dark cyan), buat operator shift/ruangan gelap.
+// LIGHT = tema terang & kontras tinggi buat manajemen — biru-vs-oranye/
+// merah-tua (bukan hijau-vs-merah) supaya tetap kebaca walau ada gangguan
+// penglihatan warna.
 export const DARK = {
   bg: "#050f14",
   panel: "#091820",
@@ -52,21 +45,13 @@ export const DARK = {
   text: "#d0eef8",
   textDim: "#4a8fa8",
   textMut: "#1e4a5c",
-  // Dulu 2 token di bawah ini HARDCODE literal "#040d12" / "#040d1240" di
-  // beberapa komponen (BreakdownTempat/BreakdownTrend) — kelihatan oke di
-  // dark theme (kebetulan mirip warna gelap lain di situ), tapi begitu
-  // theme di-switch ke LIGHT, sel-sel itu TETEP GELAP karena warnanya
-  // ke-hardcode, bukan ngikut `C`. Sekarang jadi token resmi biar ke-swap
-  // otomatis pas ganti tema.
   inputBg: "#040d12",
-  // ⚠️ WAJIB solid (6-digit hex, TANPA alpha channel)! Sebelumnya
-  // "#040d1240" — 2 digit terakhir itu alpha ~25% opacity, bikin
-  // baris ganjil (yang pake rowAlt) jadi tembus pandang. Karena
-  // kolom kiri di breakdown table itu position:sticky, transparansi
-  // ini bikin konten kolom tanggal yang lagi discroll di baliknya
-  // numpuk kelihatan bareng teks sticky-nya = efek "berbayang".
-  // Warna ini hasil blend manual #040d12 25% di atas panel #091820,
-  // biar tetep solid tapi visual stripe-nya sama kayak sebelumnya.
+  // ⚠️ WAJIB solid (6-digit hex, TANPA alpha channel)! Kolom kiri di
+  // breakdown table itu position:sticky — kalau warnanya ada alpha
+  // (transparan), konten yang discroll di baliknya numpuk kelihatan
+  // bareng teks sticky-nya (efek "berbayang"). Warna ini hasil blend
+  // manual #040d12 25% di atas panel #091820, biar tetep solid tapi
+  // visual stripe-nya sama.
   rowAlt: "#08151c",
 };
 
@@ -104,12 +89,9 @@ function readSavedTheme() {
 export { readSavedTheme };
 
 // `C` SENGAJA diexport sebagai object yang SAMA (mutable, bukan re-assign) —
-// supaya semua file yang udah `import { C } from "../config/constants"` dan
-// makai C.warna langsung di JSX tetap otomatis ke-update begitu tema
-// di-toggle, TANPA perlu diubah satu-satu jadi Context/hook. Komponen yang
-// lagi kebuka pas toggle butuh re-render sendiri (lihat useThemeMode di
-// bawah); komponen yang di-mount ULANG (pindah halaman) otomatis kebaca
-// tema terbaru karena C udah ke-update duluan.
+// supaya semua file yang makai C.warna langsung di JSX otomatis ke-update
+// begitu tema di-toggle, tanpa perlu Context/hook. Komponen yang lagi
+// kebuka butuh re-render sendiri (lihat useThemeMode di bawah).
 export const C = { ...(readSavedTheme() === "light" ? LIGHT : DARK) };
 
 export function applyTheme(mode) {
@@ -127,17 +109,13 @@ export function applyTheme(mode) {
 export function useThemeMode() {
   const [mode, setModeState] = React.useState(readSavedTheme);
 
-  // BUG FIX: race condition pas pindah halaman dari komponen yang MAKSA
-  // tema (misal MasterDashboard, lihat catatan di file itu) ke komponen
-  // yang PUNYA TOGGLE-nya sendiri (misal MasterHub). `useState(readSavedTheme)`
-  // di atas cuma jalan SEKALI pas render pertama — tapi cleanup effect
-  // komponen lama (yang ngubah tema pas dia unmount) baru betulan jalan
-  // SETELAH render pertama komponen baru selesai, jadi `mode` di sini
-  // sempet "kepotret" nilai lama sebelum tema kebalik. Efeknya label
-  // tombol vs warna beneran yang tampil jadi gak sinkron.
-  // Fix: begitu komponen ini mount, baca ULANG localStorage — effect mount
-  // SELALU jalan SETELAH semua cleanup effect komponen yang di-unmount di
-  // commit yang sama, jadi di titik ini nilainya udah pasti final/benar.
+  // ⚠️ Race condition pas pindah halaman dari komponen yang MAKSA tema
+  // (misal MasterDashboard) ke komponen yang punya toggle sendiri (misal
+  // MasterHub): `useState(readSavedTheme)` di atas cuma jalan sekali pas
+  // render pertama, tapi cleanup effect komponen lama baru jalan SETELAH
+  // itu — jadi `mode` sempet kepotret nilai lama. Fix: baca ulang
+  // localStorage begitu komponen ini mount (mount effect selalu jalan
+  // setelah semua cleanup di commit yang sama, jadi nilainya udah final).
   React.useEffect(() => {
     setModeState(readSavedTheme());
   }, []);
@@ -152,9 +130,7 @@ export function useThemeMode() {
   return [mode, toggleTheme];
 }
 
-// ─────────────────────────────────────────────
 //  Global CSS
-// ─────────────────────────────────────────────
 // Function (bukan string statis) — supaya tiap render baca warna `C` YANG LAGI AKTIF.
 // Dulu ini string statis jadi scrollbar-nya selalu gelap walau lagi di LIGHT theme.
 export function GLOBAL_STYLE() {
@@ -169,9 +145,7 @@ export function GLOBAL_STYLE() {
 `;
 }
 
-// ─────────────────────────────────────────────
 //  Mock data
-// ─────────────────────────────────────────────
 export const MOCK_DATA = {
   personnel: {
     pj_teknis: { nama: null, no_karyawan: null, telp: null, foto: null },

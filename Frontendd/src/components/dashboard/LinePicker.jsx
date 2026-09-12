@@ -7,12 +7,10 @@ import {
   TEMPAT_LABEL,
 } from "../../config/constants";
 
-// ─────────────────────────────────────────────────────────────
 //  Halaman muncul kalau dashboard dibuka TANPA ?line=...
 //  - Nampilin daftar line aktif (klik → masuk dashboard line itu)
 //  - Form kecil buat nambah line baru (line_code + shift scheme)
 //    tanpa perlu sentuh kode/deploy ulang sama sekali.
-// ─────────────────────────────────────────────────────────────
 export default function LinePicker({
   onSelect,
   onGoToMaster,

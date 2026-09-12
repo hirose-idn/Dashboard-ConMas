@@ -27,16 +27,10 @@ export default function App() {
   const [urlState, setUrlState] = useState(getUrlState());
 
   // remoteSourceKey opsional ("sgp"/"systech") — diisi cuma pas line yang
-  // dipilih itu punya DB di instance SUBCONT (diklik dari tabel Ranking
-  // Line di Master Hub, lihat MasterDashboard.jsx). Line Internal biasa
-  // (dari LinePicker/tabel lokal) tetap panggil selectLine(code) tanpa
-  // argumen ke-2, persis kayak sebelumnya.
-  //
-  // backdate opsional (YYYY-MM-DD) — diisi cuma pas diklik dari tabel
-  // Ranking Line di Master Dashboard YANG LAGI di-backdate (rankingDate
-  // != hari ini, lihat MasterDashboard.jsx). Kalau Master Dashboard-nya
-  // lagi nampilin hari ini, param ini gak dikirim (undefined) → PCBDashboard
-  // tetap live kayak sebelumnya, gak ada behavior yang berubah.
+  // dipilih itu punya DB di instance SUBCONT (diklik dari Ranking Line di
+  // Master Hub). backdate opsional (YYYY-MM-DD) — diisi cuma pas diklik
+  // dari Ranking Line di Master Dashboard yang lagi di-backdate. Kalau
+  // gak diisi, behavior tetap live seperti biasa.
   const selectLine = useCallback((code, remoteSourceKey, backdate) => {
     const url = new URL(window.location.href);
     url.searchParams.set("line", code);
@@ -140,18 +134,12 @@ export default function App() {
       />
     );
   }
-  // ⚠️ "Master Hub" narik /api/master/* buat AGREGASI 3 lokasi — cuma
-  // masuk akal diliat dari instance Hirose. Instance subcont (SGP/Systech)
-  // bisa nyasar ke ?view=hub lewat 2 jalur:
-  //   1) breadcrumb "← Master Hub" di komponen lama yang masih goToHub
-  //   2) ketik manual ?view=hub di address bar
-  // Kalau instance BUKAN internal, blok view ini — lempar balik ke
-  // Breakdown per Line tempat sendiri, JANGAN pernah render MasterHub.
-  //
-  // "Master Dashboard" (?view=master / MasterDashboard.jsx) BEDA — dia
-  // cuma fetch /api/dashboard/* (endpoint LOKAL instance ini sendiri, semua
-  // line tempat ini), jadi generic dan valid buat SEMUA instance, gak cuma
-  // internal. Makanya "master" TIDAK ikut di-gate di sini.
+  // "Master Hub" cuma masuk akal diliat dari instance Hirose (agregasi 3
+  // lokasi). Instance subcont bisa nyasar ke ?view=hub (breadcrumb lama
+  // atau ketik manual) — kalau BUKAN internal, lempar balik ke Breakdown
+  // per Line tempat sendiri, JANGAN render MasterHub. "Master Dashboard"
+  // (?view=master) beda — cuma fetch endpoint LOKAL, valid buat semua
+  // instance, makanya gak ikut di-gate.
   if (urlState.view === "hub" && !IS_INTERNAL_INSTANCE) {
     return (
       <BreakdownTempat

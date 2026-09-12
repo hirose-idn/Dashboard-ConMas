@@ -109,9 +109,7 @@ function setLiburDates({ year, month, tempat, liburDates }) {
   return getEntry(year, month, tempat);
 }
 
-// ============================================================================
 // DAILY TARGET PACING — v2 (hourly bucket, shift-ownership aware)
-// ============================================================================
 // Ganti total pendekatan lama (yang motong shift malam di tengah malam /
 // pembagi "17 jam" & "24 jam"). Sekarang:
 //
@@ -127,7 +125,6 @@ function setLiburDates({ year, month, tempat, liburDates }) {
 // Kedua-duanya pakai HOURLY BUCKET: target cuma naik sekali tiap jam
 // PENUH lewat (misal jam 10:15 s.d 10:59 pakai posisi jam 10, baru naik
 // pas 11:00) — BUKAN interpolasi menit real-time.
-// ============================================================================
 
 // Ambil { year, month, day, hour } versi WIB (Asia/Jakarta, UTC+7) dari
 // waktu sekarang — SENGAJA pakai trik "+7 jam lalu baca getUTC*()" biar

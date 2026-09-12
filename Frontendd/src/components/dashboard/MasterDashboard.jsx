@@ -21,9 +21,7 @@ import {
   DailyTrendChart,
 } from "./MasterDashboardWidgets";
 
-// ─────────────────────────────────────────────────────────────
 //  MASTER DASHBOARD
-// ─────────────────────────────────────────────────────────────
 export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat }) {
   // Dibuka dari Master Hub buat lokasi SGP/Systech (bukan Internal browsing
   // dirinya sendiri) -> semua fetch di bawah harus lewat proxy /api/master/

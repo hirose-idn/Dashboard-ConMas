@@ -1,23 +1,14 @@
-// Tanggung jawab: endpoint buat Executive Dashboard (halaman baru,
-// KHUSUS instance Internal — lihat App.jsx gating IS_INTERNAL_INSTANCE).
+// Endpoint buat Executive Dashboard (KHUSUS instance Internal — lihat
+// App.jsx gating IS_INTERNAL_INSTANCE). TARGET masih manual (planner
+// input, disimpan di utils/executiveTargetsRegistry.js). ACTUAL otomatis
+// dari output_actual produksi asli, sumber yang sama dipakai Master Hub —
+// dipanggil langsung (bukan HTTP round-trip) biar cepat.
 //
-// TARGET: masih manual (planner input) — belum ada sumber data otomatis
-// buat angka target/rencana level Executive ini, disimpan di file
-// (utils/executiveTargetsRegistry.js).
-//
-// ACTUAL: SEKARANG OTOMATIS — narik dari output_actual produksi asli,
-// sumber yang SAMA persis dipakai Master Hub (`/api/master/monthly-summary`,
-// gabungan Internal+SGP+Systech). Ga ada lagi input manual buat Actual —
-// dipanggil LANGSUNG (bukan HTTP round-trip ke diri sendiri) biar cepat,
-// reuse persis service yang sama kayak routes/master.js.
-//
-// Route ini SENGAJA tetap di-mount di semua instance (bukan cuma
-// Internal) supaya kalau suatu saat mau dibuka dari instance lain juga
-// gampang tinggal ganti gating di Frontend — tapi endpoint WRITE (POST,
-// cuma buat Target sekarang) gak divalidasi macem-macem soal siapa yang
-// boleh akses, karena backend Internal aja yang connect-able dari luar
-// (subcont gak expose port ini ke publik). Kalau nanti mau dikunci lebih
-// ketat, tambahin cek `SOURCE_NAME !== "internal"` di sini.
+// Route ini tetap di-mount di semua instance biar gampang dibuka dari
+// instance lain kalau perlu — tapi endpoint WRITE gak divalidasi siapa
+// yang boleh akses, karena cuma backend Internal yang connect-able dari
+// luar. Kalau perlu dikunci lebih ketat, tambahin cek
+// `SOURCE_NAME !== "internal"` di sini.
 
 const express = require("express");
 const router = express.Router();
@@ -95,16 +86,8 @@ async function getActualPerTempat(year, month) {
   return byTempat;
 }
 
-// Dipanggil dari POST /target setelah save, biar target baru + actual
-// (yang mungkin masih relevan dari cache) langsung konsisten di refetch
-// berikutnya — TAPI kita SENGAJA gak invalidate actualCache di sini,
-// karena target gak pernah mempengaruhi actual sama sekali (dua sumber
-// data yang independen). Invalidate cuma perlu kalau actual-nya sendiri
-// yang berubah (otomatis expire max 30 detik).
-
 // masaKerja = { workingDays, elapsedWorkingDays } — sama buat semua tempat
-// per periode yang diliat (kalender kerja gak dipecah per lokasi, cuma
-// per year+month, lihat utils/workCalendarRegistry.js).
+// per periode yang diliat (kalender kerja gak dipecah per lokasi).
 function computeAchievement(target, actual, masaKerja) {
   const t = Number(target) || 0;
   const a = Number(actual) || 0;
@@ -128,11 +111,9 @@ function computeAchievement(target, actual, masaKerja) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/executive/month?year=&month= — buat KPI card + Achievement
 //  Ranking (3 lokasi) di 1 bulan tertentu.
 //  target: manual (file) | actual: OTOMATIS (data produksi asli)
-// ─────────────────────────────────────────────────────────────
 router.get("/month", async (req, res) => {
   try {
     const year = Number(req.query.year);
@@ -203,14 +184,12 @@ router.get("/month", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/executive/trend?year=&tempat= — buat grafik "Trend
 //  Performance" kumulatif per bulan sepanjang tahun. tempat opsional
 //  (kalau gak diisi, jumlahin ketiga lokasi).
 //  target: manual (file) | actual: OTOMATIS (data produksi asli, 1
 //  query per bulan — 12x query per tahun, wajar buat halaman yang gak
 //  di-refresh tiap detik).
-// ─────────────────────────────────────────────────────────────
 router.get("/trend", async (req, res) => {
   try {
     const year = Number(req.query.year);
@@ -273,7 +252,6 @@ router.get("/trend", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  POST /api/executive/target — input/edit manual TARGET doang.
 //  body: { year, month, tempat, target }
 //  ⚠️ "actual" DIABAIKAN kalau dikirim — actual selalu dihitung otomatis
@@ -281,7 +259,6 @@ router.get("/trend", async (req, res) => {
 //  disimpan manual lagi. Parameter ini sengaja gak divalidasi/ditolak
 //  biar frontend lama yang masih ngirim `actual` gak error — cuma gak
 //  ke-pakai aja.
-// ─────────────────────────────────────────────────────────────
 router.post("/target", (req, res) => {
   try {
     const { year, month, tempat, target } = req.body || {};
@@ -294,11 +271,9 @@ router.post("/target", (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/executive/calendar?year=&month=&tempat= — kalender kerja 1
 //  tempat di 1 bulan (daftar tanggal libur yang diklik planner), dipakai
 //  buat render grid kalender pas Edit di Executive Dashboard.
-// ─────────────────────────────────────────────────────────────
 router.get("/calendar", (req, res) => {
   try {
     const year = Number(req.query.year);
@@ -322,11 +297,9 @@ router.get("/calendar", (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  POST /api/executive/calendar — simpan daftar tanggal libur (OVERWRITE
 //  lengkap) buat 1 tempat di 1 bulan.
 //  body: { year, month, tempat, liburDates: ["2026-07-04", "2026-07-05", ...] }
-// ─────────────────────────────────────────────────────────────
 router.post("/calendar", (req, res) => {
   try {
     const { year, month, tempat, liburDates } = req.body || {};

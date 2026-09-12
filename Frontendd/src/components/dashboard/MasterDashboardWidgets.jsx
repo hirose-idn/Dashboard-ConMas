@@ -1,7 +1,6 @@
 import React from "react";
 import { C } from "../../config/constants";
 
-// ─────────────────────────────────────────────────────────────
 //  MasterDashboard presentational widgets
 //
 //  Dipisah dari MasterDashboard.jsx (yang isinya stateful/fetch logic)
@@ -9,7 +8,6 @@ import { C } from "../../config/constants";
 //  presentational (nerima props, gak ada state/fetch sendiri), jadi
 //  aman dipindah tanpa ubah behavior apapun. Diekspor buat dipakai
 //  balik di MasterDashboard.jsx.
-// ─────────────────────────────────────────────────────────────
 
 // ─── helpers ───────────────────────────────────────────────────
 export const fmt = (n, dec = 0) =>

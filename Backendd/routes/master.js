@@ -93,12 +93,10 @@ async function collectAllSources(date) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/master/summary?date=YYYY-MM-DD — semua source, gagal-isolasi.
 //  Tanpa ?date → shift yang lagi jalan hari ini (perilaku lama). Dikasih
 //  ?date valid → ringkasan SATU TANGGAL PENUH, dipakai filter tanggal di
 //  panel "Kinerja Produksi Hari Ini" Master Dashboard Utama.
-// ─────────────────────────────────────────────────────────────
 router.get("/summary", async (req, res) => {
   const dateParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || "")
     ? req.query.date
@@ -141,13 +139,11 @@ router.get("/summary", async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/master/monthly-summary?year=&month= — ringkasan teragregasi
 //  SATU BULAN PENUH dari SEMUA source (Internal + SGP + Systech), gagal-
 //  isolasi sama seperti /summary. Ini yang dipakai KPI utama & tabel
 //  "Ringkasan Bulanan" di Master Dashboard Utama — bukan cuma hari berjalan.
 //  year/month default ke bulan berjalan WIB.
-// ─────────────────────────────────────────────────────────────
 router.get("/monthly-summary", async (req, res) => {
   const wib = new Date(Date.now() + 7 * 3600 * 1000);
   const year = parseInt(req.query.year) || wib.getUTCFullYear();
@@ -227,11 +223,9 @@ router.get("/monthly-summary", async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/master/monthly-trend?year=&month= — output harian 1 bulan,
 //  digabung PER TEMPAT (bukan cuma total), buat chart line multi-source
 //  di Master Dashboard Utama. year/month default ke bulan berjalan WIB.
-// ─────────────────────────────────────────────────────────────
 router.get("/monthly-trend", async (req, res) => {
   const wib = new Date(Date.now() + 7 * 3600 * 1000);
   const year = parseInt(req.query.year) || wib.getUTCFullYear();
@@ -304,11 +298,9 @@ router.get("/monthly-trend", async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/master/tempat-trend?source=&start=&end= — trend harian +
 //  totals (KPI card) buat SATU LOKASI, custom date range bebas. Dipakai
 //  halaman "Breakdown Tren" yang dibuka dari popup row lokasi di Hub.
-// ─────────────────────────────────────────────────────────────
 router.get("/tempat-trend", async (req, res) => {
   const { source: sourceKey, start, end } = req.query;
   const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
@@ -351,7 +343,6 @@ router.get("/tempat-trend", async (req, res) => {
   res.json(result);
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/master/line-range-breakdown?source=&start=&end= — breakdown
 //  PER LINE buat SATU LOKASI, custom date range bebas. Dipakai halaman
 //  "Breakdown per Line" pas dibuka LEWAT Master Hub buat lokasi SGP/Systech
@@ -359,7 +350,6 @@ router.get("/tempat-trend", async (req, res) => {
 //  Master karena Master gak punya akses ke DB subcont, jadi harus proxy
 //  lewat HTTP ke /api/external/line-range-breakdown instance yang
 //  bersangkutan (sama pola persis kayak /tempat-trend di atas).
-// ─────────────────────────────────────────────────────────────
 router.get("/line-range-breakdown", async (req, res) => {
   const { source: sourceKey, start, end } = req.query;
   const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
@@ -407,14 +397,12 @@ router.get("/line-range-breakdown", async (req, res) => {
   res.json(result);
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/master/dashboard/* — 5 endpoint proxy buat isi "Dashboard
 //  Utama" pas dibuka LEWAT Master Hub buat lokasi SGP/Systech (tombol
 //  yang dulu cuma nampilin alert "belum tersedia dari Hub"). Sama pola
 //  persis kayak /line-range-breakdown di atas: local -> loopback lokal,
 //  http -> HTTP ke instance bersangkutan (otomatis fallback ke data
 //  push-sync kalau pull gagal/belum dikonfigurasi, lihat sourceClient.js).
-// ─────────────────────────────────────────────────────────────
 function resolveSourceOr400(req, res) {
   const sourceKey = req.query.source;
   const source = SOURCES[sourceKey];
@@ -522,7 +510,6 @@ async function fetchLocalLineJson(pathName, query = {}) {
   return r.data;
 }
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/master/dashboard/line-summary?source=&line=
 //  GET /api/master/dashboard/line-monthly?source=&line=
 //  — drill-down 1 line (dipanggil dari MasterDashboard.jsx pas user klik
@@ -531,7 +518,6 @@ async function fetchLocalLineJson(pathName, query = {}) {
 //  local->loopback / http->proxy kayak endpoint dashboard/* lain di atas,
 //  cuma pakai fetchLocalLineJson (bukan fetchLocalDashboardJson) buat
 //  cabang local karena kontrak response 2 endpoint ini beda.
-// ─────────────────────────────────────────────────────────────
 router.get("/dashboard/line-summary", async (req, res) => {
   const resolved = resolveSourceOr400(req, res);
   if (!resolved) return;

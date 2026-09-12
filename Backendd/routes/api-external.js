@@ -83,30 +83,21 @@ const externalLimiter = rateLimit({
     status: "error",
     message: "Terlalu banyak request, coba lagi sebentar",
   },
-  // pushSyncService.js (instance SGP/Systech) loopback ke endpoint ini
-  // sendiri lewat http://localhost:PORT buat ambil data yang mau dipush
-  // ke Master — 1 request per jenis data, dan makin banyak line aktif
-  // makin banyak request/siklus (lihat komentar di pushSyncService.js).
-  // Budget 30/menit itu diitung buat traffic Master POLLING dari luar,
-  // BUKAN buat loopback internal ini — begitu jumlah line lumayan
-  // banyak, loopback sendiri udah ngabisin budget duluan sebelum Master
-  // asli sempat polling. Request loopback (dari 127.0.0.1/::1) tetap
-  // kena requireApiKey di bawah, jadi tetap aman di-skip dari limiter
-  // ini — traffic eksternal beneran (via tunnel/Caddy) gak pernah
-  // muncul dengan IP loopback.
+  // pushSyncService.js loopback ke sini via 127.0.0.1 buat ambil data yang
+  // mau dipush — budget 30/menit itu diitung buat traffic Master beneran
+  // dari luar, bukan loopback internal ini (yang tetap kena requireApiKey
+  // di bawah), jadi loopback di-skip dari limiter.
   skip: (req) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip),
 });
 
 router.use(externalLimiter);
 router.use(requireApiKey);
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/external/summary?date=YYYY-MM-DD — ringkasan teragregasi
 //  instance ini. Tanpa ?date, defaultnya SHIFT YANG LAGI JALAN hari ini
 //  (getLocalSummary — perilaku lama, gak berubah). Dikasih ?date valid →
 //  ringkasan SATU TANGGAL PENUH (semua shift), dipakai filter tanggal
 //  panel "Kinerja Produksi Hari Ini" di Master Dashboard Utama.
-// ─────────────────────────────────────────────────────────────
 router.get("/summary", async (req, res) => {
   try {
     const dateParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || "")
@@ -137,11 +128,9 @@ router.get("/summary", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/external/monthly-trend?year=&month= — output harian 1 bulan
 //  (SUM lintas semua line instance ini), buat chart di Master Dashboard
 //  Utama. year/month default ke bulan berjalan WIB kalau gak dikirim.
-// ─────────────────────────────────────────────────────────────
 router.get("/monthly-trend", async (req, res) => {
   try {
     const wib = new Date(Date.now() + 7 * 3600 * 1000);
@@ -170,13 +159,11 @@ router.get("/monthly-trend", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/external/range-trend?start=&end= — output harian buat RENTANG
 //  TANGGAL BEBAS (start/end format YYYY-MM-DD, boleh lintas bulan), plus
 //  totals (output_plan, output_actual, bekidoritsu, stoptime_total) buat
 //  KPI card. Dipakai halaman "Breakdown Tren" di Master (date-range picker
 //  per lokasi) — beda dari /monthly-trend yang terkunci 1 bulan kalender.
-// ─────────────────────────────────────────────────────────────
 router.get("/range-trend", async (req, res) => {
   try {
     const start = String(req.query.start || "");
@@ -214,12 +201,10 @@ router.get("/range-trend", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/external/monthly-summary?year=&month= — ringkasan teragregasi
 //  SATU BULAN PENUH instance ini (bukan cuma shift/hari berjalan). Dipakai
 //  buat KPI utama & tabel "Ringkasan Bulanan" di Master Dashboard Utama.
 //  year/month default ke bulan berjalan WIB kalau gak dikirim.
-// ─────────────────────────────────────────────────────────────
 router.get("/monthly-summary", async (req, res) => {
   try {
     const wib = new Date(Date.now() + 7 * 3600 * 1000);
@@ -248,7 +233,6 @@ router.get("/monthly-summary", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/external/line-range-breakdown?start=&end= — breakdown PER LINE
 //  instance ini buat rentang tanggal bebas. Dipakai Master narik data
 //  "Breakdown per Line" SGP/Systech dari jauh (lewat routes/master.js),
@@ -259,7 +243,6 @@ router.get("/monthly-summary", async (req, res) => {
 //  balikin data instance ini doang (SOURCE_NAME-nya sendiri), gak bisa
 //  diminta narik tempat lain. Itu tanggung jawab routes/master.js buat
 //  milih instance mana yang mau ditembak.
-// ─────────────────────────────────────────────────────────────
 router.get("/line-range-breakdown", async (req, res) => {
   try {
     const start = String(req.query.start || "");
@@ -297,7 +280,6 @@ router.get("/line-range-breakdown", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/external/dashboard/* — proxy READ-ONLY ke 5 endpoint
 //  /api/dashboard/* instance ini SENDIRI (summary-all, summary-by-tempat,
 //  summary-all-daily, daily-trend, monthly-summary), dipakai buat isi
@@ -311,7 +293,6 @@ router.get("/line-range-breakdown", async (req, res) => {
 //  Dipakai jalur PULL (kalau nanti kredensial SGP_API_URL/SYSTECH_API_URL
 //  diisi beneran) DAN sumber data buat push-sync (pushSyncService.js
 //  loopback ke sini juga) — satu implementasi, dua pemakai.
-// ─────────────────────────────────────────────────────────────
 const axios = require("axios");
 const LOCAL_BASE_URL = `http://localhost:${process.env.PORT || 3000}`;
 
@@ -345,7 +326,6 @@ async function proxyLocalDashboard(res, path, query = {}) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
 //  GET /dashboard/line-summary?line= & /dashboard/line-monthly?line=
 //  — versi RINGKAS 1 line spesifik, dipakai Master pas user klik line
 //  subcont di tabel Ranking Line (routes/master.js proxy ke sini).
@@ -364,7 +344,6 @@ async function proxyLocalDashboard(res, path, query = {}) {
 //  SENGAJA cuma 2 endpoint ini (bukan reject-detail/foto) — itu di-skip
 //  total di sisi Master, biar scope-nya kecil dulu (angka utama:
 //  output/cycle time/stoptime/deviasi).
-// ─────────────────────────────────────────────────────────────
 async function proxyLocalDashboardRaw(res, path, query = {}) {
   try {
     const qs = new URLSearchParams(query).toString();
@@ -419,9 +398,7 @@ router.get("/dashboard/monthly-summary", (req, res) =>
   }),
 );
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/external/health — dicek Master sebelum/tanpa narik summary
-// ─────────────────────────────────────────────────────────────
 router.get("/health", async (_req, res) => {
   if (MOCK_MODE) {
     return res.json({

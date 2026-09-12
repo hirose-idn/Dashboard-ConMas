@@ -1,16 +1,8 @@
-// Tanggung jawab: endpoint PENERIMA push dari instance SGP/Systech.
-// SATU-SATUNYA yang perlu di-expose ke internet lewat Cloudflare Tunnel
-// di sisi Hirose — SGP/Systech POST ke sini tiap ~1 menit, dengan data
-// hasil query LOKAL mereka sendiri (bentuknya sama persis kayak yang
-// biasa mereka balikin di GET /api/external/summary dkk).
-//
-// Ini FALLBACK, bukan pengganti arsitektur pull yang udah ada
-// (config/sources.js + services/sourceClient.js). Kalau pull normal
-// (via Tailscale/tunnel) masih jalan, data pushed ini gak kepake —
-// baru dipakai sourceClient.js pas pull-nya timeout/unreachable.
-//
-// Data disimpan di DB TERPISAH dari ConMas (lihat db-sync.js) — bukan
-// nambah tabel di DB vendor.
+// Endpoint PENERIMA push dari instance SGP/Systech — satu-satunya yang
+// perlu di-expose lewat Cloudflare Tunnel. Ini FALLBACK, bukan pengganti
+// arsitektur pull (config/sources.js + services/sourceClient.js): dipakai
+// sourceClient.js cuma pas pull normal timeout/unreachable. Data disimpan
+// di DB TERPISAH dari ConMas (lihat db-sync.js).
 
 const express = require("express");
 const router = express.Router();
@@ -77,14 +69,10 @@ function isValidPushType(type) {
 // dipasang sebelum semua route), jadi aman dipakai di sini.
 const syncLimiter = rateLimit({
   windowMs: 60 * 1000,
-  // Dulu 60 didesain buat 4 jenis data/source tiap ~1 menit, lalu naik ke
-  // 120 pas nambah 9 jenis (breakdown per line + 5 dashboard-*). Sekarang
-  // nambah lagi 2 request PER LINE AKTIF (dashboard-line-<CODE> +
-  // dashboard-line-monthly-<CODE>-Y-M, lihat pushSyncService.js) — kalau
-  // instance ini punya banyak line (puluhan), gampang kelewat 120 dalam 1
-  // siklus (apalagi ada retry backlog nambahin sampai 15 lagi). Naikin ke
-  // 400 biar ada headroom cukup gede — kalau suatu saat masih kena 429 di
-  // log, ini angka pertama yang perlu dicek/naikin lagi.
+  // Instance dengan banyak line aktif kirim 2 request PER LINE tiap siklus
+  // (dashboard-line-<CODE> + dashboard-line-monthly-<CODE>-Y-M, lihat
+  // pushSyncService.js) + retry backlog — 400 kasih headroom cukup gede.
+  // Kalau masih kena 429 di log, ini angka pertama yang perlu dinaikin.
   max: 400,
   standardHeaders: true,
   legacyHeaders: false,
@@ -125,10 +113,8 @@ function requireSyncKey(req, res, next) {
 
 router.use(syncLimiter);
 
-// ─────────────────────────────────────────────────────────────
 //  POST /api/sync
 //  Body: { source: "sgp"|"systech", type: "summary"|..., timestamp, data }
-// ─────────────────────────────────────────────────────────────
 router.post("/", requireSyncKey, async (req, res) => {
   if (!syncDbConfigured) {
     return res.status(503).json({
@@ -176,11 +162,9 @@ router.post("/", requireSyncKey, async (req, res) => {
   res.status(200).json({ status: "ok", source, type, received_at: new Date().toISOString() });
 });
 
-// ─────────────────────────────────────────────────────────────
 //  GET /api/sync/status — dashboard kecil buat lihat kapan terakhir
 //  tiap source/type push (berguna buat ngecek "SGP udah berapa lama
 //  gak ngirim data?" tanpa buka psql).
-// ─────────────────────────────────────────────────────────────
 router.get("/status", async (_req, res) => {
   if (!syncDbConfigured) {
     return res.json({ status: "ok", configured: false, sources: [] });

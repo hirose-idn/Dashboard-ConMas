@@ -1,21 +1,13 @@
-// Tanggung jawab: jalan di instance SGP/Systech (BUKAN di Internal/Master).
-// Tiap interval, ambil data LOKAL (fungsi yang sama persis dipakai
-// routes/api-external.js buat jawab pull dari Master) dan POST ke
-// endpoint /api/sync di Master — via Cloudflare Tunnel, outbound doang,
-// gak butuh Tailscale/VPN/port terbuka sama sekali di sisi SGP/Systech.
+// Jalan di instance SGP/Systech (BUKAN Internal/Master). Tiap interval,
+// ambil data LOKAL dan POST ke /api/sync di Master via Cloudflare Tunnel
+// (outbound doang, gak butuh Tailscale/VPN/port terbuka). Ini FALLBACK
+// buat arsitektur pull yang sudah ada — kalau Master gagal PULL, dia masih
+// bisa pakai data terakhir yang dipush lewat sini (sourceClient.js
+// tryPushFallback()).
 //
-// Ini FALLBACK buat arsitektur pull yang sudah ada — kalau Tailscale/
-// tunnel Master lagi putus dan Master gagal PULL dari sini, Master masih
-// bisa pakai data terakhir yang kepush lewat sini (lihat sourceClient.js
-// tryPushFallback()). Pull tetap jalur utama; ini cuma jaring pengaman.
-//
-// Gagal kirim? Antrian sederhana di file lokal (sync-push-queue.json)
-// biar data gak hilang kalau internet/tunnel Master lagi bermasalah,
-// nanti di-retry otomatis di siklus berikutnya.
-//
-// Aktif HANYA kalau PUSH_MASTER_URL & PUSH_SYNC_KEY diisi di .env
-// instance ini — kalau kosong, service ini gak start sama sekali
-// (lihat index.js).
+// Gagal kirim? Antrian sederhana di file lokal (sync-push-queue.json),
+// di-retry otomatis di siklus berikutnya. Aktif hanya kalau
+// PUSH_MASTER_URL & PUSH_SYNC_KEY diisi (lihat index.js).
 
 const axios = require("axios");
 const fs = require("fs");
@@ -74,9 +66,6 @@ async function sendToMaster(item) {
   );
 }
 
-// Kumpulin data yang mau di-push siklus ini. Ditambah try/catch per-jenis
-// biar 1 query gagal (mis. getLocalMonthlySummary lagi lambat) gak bikin
-// jenis data lain ikut gak ke-push.
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -115,6 +104,9 @@ async function fetchLocalDashboard(pathName, query = {}) {
 }
 
 async function collectPayloads() {
+  // Try/catch per-jenis di bawah — biar 1 query gagal (mis.
+  // getLocalMonthlySummary lagi lambat) gak bikin jenis data lain ikut
+  // gak ke-push.
   const timestamp = new Date().toISOString();
   const wib = new Date(Date.now() + 7 * 3600 * 1000);
   const year = wib.getUTCFullYear();
@@ -335,17 +327,12 @@ function start() {
     `🔄 Push-sync service AKTIF — kirim data ke ${MASTER_URL} tiap ${INTERVAL_MS / 1000}s (source=${SOURCE_NAME})`,
   );
 
-  // Guard anti-tabrakan: setInterval nembak tiap INTERVAL_MS TERLEPAS dari
-  // apakah syncCycle() sebelumnya udah kelar. Kalau jumlah line banyak
-  // (tiap line = 2 request sequential), 1 putaran bisa mepet/lewat
-  // INTERVAL_MS pas lagi ada perlambatan (DB berat, network lag) — tanpa
-  // guard ini, siklus baru numpuk DI ATAS yang lama (bukan gantiin),
-  // makin lama makin banyak siklus jalan BARENGAN → makin banyak koneksi
-  // DB & request keluar sekaligus → makin lambat → makin numpuk lagi
-  // (spiral, gak balik normal sendiri sampai proses di-restart). Dengan
-  // guard ini, kalau kejadian, siklus baru cuma di-skip (log doang),
-  // BUKAN ditumpuk — begitu siklus yang lagi jalan kelar, siklus
-  // berikutnya jalan normal lagi di tick INTERVAL_MS terdekat.
+  // Guard anti-tabrakan: tanpa ini, kalau 1 siklus lebih lambat dari
+  // INTERVAL_MS (DB berat/network lag), siklus baru numpuk DI ATAS yang
+  // lama — makin banyak siklus jalan bareng → makin lambat → makin
+  // numpuk lagi (spiral, gak balik normal sampai proses di-restart).
+  // Dengan guard ini, siklus baru cuma di-skip (log doang) kalau yang
+  // lama masih jalan.
   let isRunning = false;
   let skippedCount = 0;
 

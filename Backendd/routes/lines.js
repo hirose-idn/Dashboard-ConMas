@@ -1,7 +1,6 @@
 const express = require("express");
 const router = express.Router();
 
-// -----------------------------------------------------------------
 //  Registry line - DISIMPAN DI FILE (data/lines.json), BUKAN DI
 //  DATABASE. Sengaja dipisah dari DB ConMas (vendor) supaya:
 //    - Gak pernah bikin/ubah objek apa pun di database vendor
@@ -13,7 +12,6 @@ const router = express.Router();
 //
 //  Baca/tulisnya sekarang lewat utils/linesRegistry.js, biar 1 sumber
 //  yang sama dipakai bareng routes/dashboard.js & routes/api-external.js.
-// -----------------------------------------------------------------
 
 const { readLines, writeLines } = require("../utils/linesRegistry");
 const {
