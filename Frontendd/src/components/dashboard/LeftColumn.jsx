@@ -52,8 +52,12 @@ function QRPlaceholder() {
             }}
           />
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 16, marginBottom: 2 }}>▦</div>
-            <div style={{ fontSize: 7, color: C.textDim }}>QR Code</div>
+            <div style={{ fontSize: 8, color: C.textDim, letterSpacing: "0.1em" }}>
+              QR CODE
+            </div>
+            <div style={{ fontSize: 7, color: C.textMut, marginTop: 2 }}>
+              belum tersedia
+            </div>
           </div>
         </>
       )}
@@ -75,7 +79,13 @@ function parseNamaField(raw) {
 }
 
 // ─── Card info personel (ketua / PJ teknis) ──────────────
-function PersonelCard({ icon, title, data, live }) {
+// Revisi v2: foto TETAP ADA (di lantai produksi supervisor lewat TV butuh
+// tau muka PIC shift ini, bukan cuma nama), tapi bobot visualnya diturunin
+// — dulu foto 60px + nama 13px + "NIK: xxx" bikin blok personel se-berat
+// blok KPI. Sekarang: foto 56px, nama UPPERCASE 13px, NIK telanjang 9px.
+// Emoji judul (👤/🔧/🔍) dihapus, identitas seksi pindah ke border kiri
+// cyan bawaan SectionTitle.
+function PersonelCard({ title, data, live }) {
   // Nama & NIK sudah di-parse di hook — tinggal pakai langsung
   // Fallback: kalau nama masih mengandung koma (mock/belum di-parse), parse di sini
   const parsed = parseNamaField(data?.nama);
@@ -88,38 +98,50 @@ function PersonelCard({ icon, title, data, live }) {
 
   return (
     <div style={{ borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-      <SectionTitle color={C.blue} icon={icon}>
+      <SectionTitle color={C.blue}>
         {title} <DataBadge live={!!live} />
       </SectionTitle>
       <div
         style={{
-          padding: "10px 12px",
+          padding: "8px 12px 9px",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: 6,
+          gap: 5,
         }}
       >
         <Avatar
           foto={data?.foto}
           fotoFallback={data?.fotoFallback}
           nama={nama}
-          size={60}
+          size={56}
         />
         <div
           style={{
             fontWeight: 800,
             fontSize: 13,
+            lineHeight: 1.15,
             color: "#fff",
             textAlign: "center",
+            textTransform: "uppercase",
+            letterSpacing: "0.02em",
           }}
         >
           {nama || "—"}
         </div>
         {nik && (
-          <div style={{ fontSize: 10, color: C.textDim }}>NIK: {nik}</div>
+          <div
+            style={{
+              fontSize: 9,
+              color: C.textDim,
+              letterSpacing: "0.06em",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {nik}
+          </div>
         )}
-        {telp && <div style={{ fontSize: 10, color: C.textDim }}>{telp}</div>}
+        {telp && <div style={{ fontSize: 9, color: C.textDim }}>{telp}</div>}
       </div>
     </div>
   );
@@ -182,24 +204,9 @@ export default function LeftColumn({
       </div>
 
       {/* ── Personel ── */}
-      <PersonelCard
-        icon="👤"
-        title="Cell Leader"
-        data={personnel?.ketua}
-        live
-      />
-      <PersonelCard
-        icon="🔧"
-        title="PJ Teknisi"
-        data={personnel?.pj_teknis}
-        live
-      />
-      <PersonelCard
-        icon="🔍"
-        title="Inspector"
-        data={personnel?.inspector}
-        live
-      />
+      <PersonelCard title="Cell Leader" data={personnel?.ketua} live />
+      <PersonelCard title="PJ Teknisi" data={personnel?.pj_teknis} live />
+      <PersonelCard title="Inspector" data={personnel?.inspector} live />
       <div style={{ flex: 1 }} />
 
       <div

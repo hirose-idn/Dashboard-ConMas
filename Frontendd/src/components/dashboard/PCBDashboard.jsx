@@ -84,6 +84,7 @@ export default function PCBDashboard({ line, remoteSource, date }) {
           availableShifts={d.available_shifts}
           shiftOverride={shiftOverride}
           onShiftChange={setShiftOverride}
+          lineStatus={d.line_status}
         />
 
         <div
@@ -120,9 +121,15 @@ export default function PCBDashboard({ line, remoteSource, date }) {
             shift={d.shift}
           />
 
+          {/* qty_reject & qty_reject_ppm dipakai panel "Quality Status"
+              di kolom kanan — supaya panel itu tetap punya isi pas daftar
+              defect-nya kosong (reject 0 = kabar baik, layak dipajang,
+              bukan bikin kolom 220px jadi blank). */}
           <RightColumn
             schedule={d.schedule}
             reject_detail={d.reject_detail}
+            qty_reject={d.qty_reject}
+            qty_reject_ppm={d.qty_reject_ppm}
           />
         </div>
 
@@ -232,7 +239,7 @@ export default function PCBDashboard({ line, remoteSource, date }) {
               zIndex: 999,
             }}
           >
-            ⚠ Ada indikasi line berhenti di tengah shift ini
+            Ada indikasi line berhenti di tengah shift ini
           </div>
         )}
         {/* "waiting" (row shift blm ada tapi masih wajar, awal shift) SENGAJA
@@ -256,7 +263,7 @@ export default function PCBDashboard({ line, remoteSource, date }) {
               zIndex: 999,
             }}
           >
-            … Menunggu Data Shift
+            Menunggu Data Shift
           </div>
         )}
       </div>

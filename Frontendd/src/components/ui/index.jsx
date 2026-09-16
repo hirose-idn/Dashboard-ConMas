@@ -2,7 +2,34 @@ import React from "react";
 import { C } from "../../config/constants";
 
 // ─── Badge: indikator sumber data ────────────────────────
+// ⚠️ Sengaja ASIMETRIS antara live vs mock:
+//   live ("DB")   → nyaris tak terlihat (7px, opacity .45, tanpa chip/
+//                   border). Ini status NORMAL — di dashboard TV dia
+//                   nempel di sebelah angka KPI 46px, jadi kalau dikasih
+//                   background + border kayak dulu, mata malah kebaca
+//                   "DB" duluan sebelum angkanya. Lihat catatan revisi
+//                   v2 poin "Kecilkan badge DB".
+//   mock          → TETAP chip oranye yang jelas. Ini kondisi ABNORMAL
+//                   (angka di layar bukan dari DB) dan HARUS kelihatan.
 export function DataBadge({ live }) {
+  if (live) {
+    return (
+      <span
+        style={{
+          fontSize: 7,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          color: C.green,
+          opacity: 0.45,
+          whiteSpace: "nowrap",
+          lineHeight: 1,
+        }}
+      >
+        DB
+      </span>
+    );
+  }
+
   return (
     <span
       style={{
@@ -10,13 +37,13 @@ export function DataBadge({ live }) {
         fontWeight: 700,
         padding: "1px 5px",
         borderRadius: 2,
-        background: live ? C.greenDim : "#2a001c",
-        color: live ? C.green : C.orange,
-        border: `1px solid ${live ? C.green + "44" : C.orange + "44"}`,
+        background: "#2a001c",
+        color: C.orange,
+        border: `1px solid ${C.orange}44`,
         whiteSpace: "nowrap",
       }}
     >
-      {live ? "● DB" : "○ mock"}
+      ○ mock
     </span>
   );
 }
@@ -175,7 +202,17 @@ export function Avatar({ foto, fotoFallback, nama, size = 48 }) {
           onError={() => setAttemptIdx((i) => i + 1)} // coba kombinasi berikutnya (ekstensi, lalu fallback generic)
         />
       ) : (
-        <span style={{ fontSize: size * 0.3, fontWeight: 800, color: C.blue }}>
+        // Inisial ini FALLBACK (foto belum di-upload) — sengaja dibikin
+        // kalem (textDim, bukan cyan terang) supaya slot yang fotonya
+        // belum ada gak lebih mencolok daripada slot yang ada fotonya.
+        <span
+          style={{
+            fontSize: Math.round(size * 0.28),
+            fontWeight: 700,
+            color: C.textDim,
+            letterSpacing: "0.04em",
+          }}
+        >
           {initials || "?"}
         </span>
       )}
@@ -184,7 +221,11 @@ export function Avatar({ foto, fotoFallback, nama, size = 48 }) {
 }
 
 // ─── Judul seksi dengan border kiri ─────────────────────
-export function SectionTitle({ children, color = C.blue, icon }) {
+// ⚠️ Prop `icon` DIHAPUS (dulu dipakai buat emoji 👤/🔧/🔍). Identitas
+// visual seksi sekarang murni dari `border-left: 3px solid <color>` +
+// warna teks — emoji di layar TV lantai produksi rendernya beda-beda per
+// OS/browser dan bikin dashboard kelihatan kayak prototype, bukan MES.
+export function SectionTitle({ children, color = C.blue }) {
   return (
     <div
       style={{
@@ -198,7 +239,6 @@ export function SectionTitle({ children, color = C.blue, icon }) {
         flexShrink: 0,
       }}
     >
-      {icon && <span style={{ fontSize: 10 }}>{icon}</span>}
       <span
         style={{
           fontSize: 10,

@@ -55,6 +55,45 @@ function Clock() {
   );
 }
 
+// ─── Pill status line (RUNNING / STANDBY / STOP / HISTORIS) ─
+// Peta status ini SENGAJA sama sumbernya dengan alarm full-screen di
+// PCBDashboard.jsx (d.line_status dari backend) — biar gak pernah ada
+// kondisi "pill bilang RUNNING tapi layar lagi blink merah".
+const STATUS_MAP = {
+  running: { label: "RUNNING", key: "green" },
+  waiting: { label: "STANDBY", key: "orange" },
+  not_running: { label: "STOP", key: "red" },
+  no_data: { label: "NO DATA", key: "textDim" },
+  shift_not_found: { label: "NO DATA", key: "textDim" },
+};
+
+function StatusPill({ historical, lineStatus }) {
+  // Di mode historis, "RUNNING" gak punya makna (ini rekap hari lewat) —
+  // yang relevan cuma "ini bukan live".
+  const s = historical
+    ? { label: "HISTORIS", key: "orange" }
+    : STATUS_MAP[lineStatus] || STATUS_MAP.running;
+  const color = C[s.key] || C.textDim;
+
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: "0.14em",
+        color,
+        background: `${color}1e`,
+        border: `1px solid ${color}55`,
+        borderRadius: 3,
+        padding: "2px 8px",
+        lineHeight: 1.4,
+      }}
+    >
+      {s.label}
+    </span>
+  );
+}
+
 // ─── Header utama dashboard ───────────────────────────────
 // `historical` + `viewedDate` diisi cuma pas dashboard ini dibuka dari
 // Master Dashboard yang lagi di-backdate (lihat App.jsx/PCBDashboard.jsx) —
@@ -70,6 +109,7 @@ export default function DashboardHeader({
   availableShifts,
   shiftOverride,
   onShiftChange,
+  lineStatus,
 }) {
   return (
     <div
@@ -111,7 +151,7 @@ export default function DashboardHeader({
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {error ? (
-            <span style={{ fontSize: 8, color: C.red }}>⚠ {error}</span>
+            <span style={{ fontSize: 8, color: C.red }}>{error}</span>
           ) : historical ? (
             <>
               <span
@@ -206,8 +246,11 @@ export default function DashboardHeader({
           gap: 2,
         }}
       >
-        {/* LINE — besar */}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+        {/* LINE — hal PERTAMA yang dicari orang pabrik pas lewat depan TV
+            ("ini layar line mana?"). Dulu 28px, kalah sama angka KPI 46px
+            di tengah. Sekarang 40px dan label "LINE" pindah ke atas biar
+            nomornya berdiri sendiri. */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
           <span
             style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.12em" }}
           >
@@ -215,17 +258,38 @@ export default function DashboardHeader({
           </span>
           <span
             style={{
-              fontSize: 28,
+              fontSize: 40,
               fontWeight: 900,
               color: C.green,
-              letterSpacing: "0.08em",
+              letterSpacing: "0.06em",
               lineHeight: 1,
-              textShadow: `0 0 16px ${C.green}88`,
+              textShadow: `0 0 20px ${C.green}88`,
+              fontVariantNumeric: "tabular-nums",
             }}
           >
             {line || "—"}
           </span>
         </div>
+
+        {/* Status pill — nempel di bawah nomor line, jadi "line mana" dan
+            "line ini lagi gimana" kebaca dalam satu lirikan. */}
+        <StatusPill historical={historical} lineStatus={lineStatus} />
+
+        {nama_produk && (
+          <span
+            style={{
+              fontSize: 9,
+              color: C.textMut,
+              letterSpacing: "0.04em",
+              maxWidth: 220,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {nama_produk}
+          </span>
+        )}
       </div>
     </div>
   );
