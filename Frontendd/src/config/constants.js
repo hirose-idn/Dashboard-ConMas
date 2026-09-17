@@ -21,6 +21,37 @@ export const TEMPAT_LABEL =
   { internal: "Internal", sgp: "SGP", systech: "Systech" }[SOURCE_NAME] ||
   "Internal";
 export const REFRESH_MS = 60_000; // server ConMas update tiap jam, refresh tiap 1 menit cukup
+
+// Base URL ConMasManager PER TEMPAT — Internal, SGP, Systech masing-masing
+// punya server/IP beda (DB-nya SAMA/shared, cuma front-end ConMasManager-
+// nya yang di-host terpisah per lokasi). Dipakai buat tombol "Buka PCB" di
+// Master Dashboard, ngarah ke dokumen report asli:
+//   {base}/InputReport/Details?repTopId={rep_top_id}
+// Override lewat env var kalau IP-nya ganti (gak perlu ubah kode):
+//   REACT_APP_CONMAS_MANAGER_URL_INTERNAL / _SGP / _SYSTECH
+// ⚠️ Path setelah host (/ConMasManager/InputReport/Details) DIASUMSIKAN
+// SAMA buat ketiganya (belum dikonfirmasi user buat SGP/Systech) — kalau
+// ternyata beda, cukup ganti value di sini/env var, gak perlu sentuh kode
+// yang makainya (lihat getConmasManagerUrl di bawah).
+export const CONMAS_MANAGER_URLS = {
+  internal:
+    process.env.REACT_APP_CONMAS_MANAGER_URL_INTERNAL ||
+    "http://192.168.147.74/ConMasManager",
+  sgp:
+    process.env.REACT_APP_CONMAS_MANAGER_URL_SGP ||
+    "http://36.93.147.98:8000/ConMasManager",
+  systech:
+    process.env.REACT_APP_CONMAS_MANAGER_URL_SYSTECH ||
+    "http://36.93.215.154:8000/ConMasManager",
+};
+
+// Helper — resolve base URL dari nilai `tempat` line (as-is dari backend:
+// "Internal"/"SGP"/"Systech", lihat COLS/summary-all-daily). Fallback ke
+// internal kalau nilai tempat-nya gak dikenal/kosong.
+export function getConmasManagerUrl(tempat) {
+  const key = (tempat || "internal").toLowerCase();
+  return CONMAS_MANAGER_URLS[key] || CONMAS_MANAGER_URLS.internal;
+}
 export const FOTO_BASE_URL = `${BASE_URL}/foto`;
 
 // DARK = tema asli (dark cyan), buat operator shift/ruangan gelap.

@@ -1,6 +1,6 @@
 import React from "react";
 import { C } from "../../config/constants";
-import { fmt, getNowWIB } from "../../config/utils";
+import { fmt } from "../../config/utils";
 import { DataBadge, ProgressBar, SectionTitle, TH, TD } from "../ui";
 
 // Dulu di sini ada SHIFT_SLOTS + filterHourlyByShift yang hardcode daftar
@@ -93,340 +93,6 @@ function MetricCard({
         </span>
         {unit && <span style={{ fontSize: 10, color: C.textDim }}>{unit}</span>}
       </div>
-    </div>
-  );
-}
-
-// ─── Legend chip kecil buat chart kumulatif ───────────────
-function LegendItem({ color, dashed, swatch, label }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-      {swatch ? (
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 2,
-            background: color,
-            opacity: 0.35,
-            border: `1px solid ${color}`,
-          }}
-        />
-      ) : (
-        <svg width="16" height="8" style={{ flexShrink: 0 }}>
-          <line
-            x1="0"
-            y1="4"
-            x2="16"
-            y2="4"
-            stroke={color}
-            strokeWidth={dashed ? 2 : 3}
-            strokeDasharray={dashed ? "4 3" : undefined}
-          />
-        </svg>
-      )}
-      <span style={{ fontSize: 9, color: C.textDim }}>{label}</span>
-    </div>
-  );
-}
-
-// ─── Chart trend Output KUMULATIF vs Plan (bukan per-jam) ─
-// Ganti TOTAL dari versi bar sebelumnya, atas kritik yang valid:
-// 1. Bar versi lama judulnya "vs Plan" tapi Plan-nya gak digambar sama
-//    sekali (cuma garis tipis acuan). Sekarang DUA garis beneran:
-//    Plan Kumulatif (putus-putus, biru) & Actual Kumulatif (solid,
-//    hijau), plus area gap di antaranya — baru jujur disebut "vs Plan".
-// 2. Ini BUKAN pengulangan tabel di atas. Tabel = delta per jam
-//    (presisi). Chart ini = APAKAH gap-nya MELEBAR sepanjang hari,
-//    insight yang gak kelihatan dari angka per-jam yang berdiri
-//    sendiri-sendiri (itu justru alasan management lebih suka lihat
-//    gap kumulatif).
-// 3. Jam yang BELUM ada datanya (live, belum kejalanin) gak lagi
-//    digambar sebagai bar/garis flat yang kelihatan kayak bug — garis
-//    Actual BERHENTI TOTAL di jam terakhir yang ada datanya. Garis Plan
-//    tetap jalan sampai akhir shift (itu proyeksi target, wajar keliatan
-//    di depan "sekarang").
-// 4. Legend + sumbu Y (gridline+angka) + sumbu X (label jam) — lengkap.
-// 5. Marker "SEKARANG" CUMA muncul kalau !historical (live) — di rekap
-//    historis gak ada "sekarang" yang masuk akal, jadi disembunyikan
-//    total, bukan dipaksa nampilin jam yang salah konteks.
-function CumulativeTrendChart({ hourly, historical }) {
-  if (!hourly || hourly.length === 0) {
-    return (
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: C.textMut,
-          fontSize: 10,
-        }}
-      >
-        Belum ada data jam buat trend kumulatif
-      </div>
-    );
-  }
-
-  // viewBox tetap (900x230), tapi di-render preserveAspectRatio="none"
-  // + width/height 100% — SVG-nya ikut gede/kecilin sesuai ruang yang
-  // dikasih parent flex (bisa TV lebar-pendek atau layar lain), bukan
-  // dipatok px. Trade-off: garis/lingkaran bisa dikit gepeng kalau rasio
-  // kontainer beda jauh dari 900:230, tapi itu jauh lebih aman daripada
-  // chart kepotong/scroll di kiosk.
-  const W = 900;
-  const H = 230;
-  const padL = 46;
-  const padR = 16;
-  const padT = 14;
-  const padB = 24;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
-
-  // ── Kumulatif Plan (semua jam) & Actual (berhenti di jam pertama
-  //    yang belum ada datanya) ──
-  let planRunning = 0;
-  let actualRunning = 0;
-  let actualStopped = false;
-  const points = hourly.map((h) => {
-    planRunning += Number(h.output_plan) || 0;
-    let actualCum = null;
-    if (!actualStopped) {
-      if (h.output_actual === null || h.output_actual === undefined) {
-        actualStopped = true;
-      } else {
-        actualRunning += Number(h.output_actual) || 0;
-        actualCum = actualRunning;
-      }
-    }
-    return { slot: h.slot, planCum: planRunning, actualCum };
-  });
-
-  let lastActualIdx = -1;
-  points.forEach((p, i) => {
-    if (p.actualCum !== null) lastActualIdx = i;
-  });
-  const lastPoint = lastActualIdx >= 0 ? points[lastActualIdx] : null;
-  const gapAtLast = lastPoint ? lastPoint.actualCum - lastPoint.planCum : null;
-
-  const maxVal = Math.max(
-    1,
-    ...points.map((p) => p.planCum),
-    ...points.map((p) => p.actualCum || 0),
-  );
-  // Bulatin atap sumbu Y ke kelipatan rapi biar gridline gak pecahan aneh
-  const niceMax = (() => {
-    const raw = maxVal * 1.12;
-    const magnitude = Math.pow(10, Math.max(0, Math.floor(Math.log10(raw)) - 1));
-    return Math.ceil(raw / magnitude) * magnitude;
-  })();
-  const Y_TICKS = 4;
-
-  const xAt = (i) => padL + (plotW * i) / Math.max(1, points.length - 1);
-  const yAt = (v) => padT + plotH - (plotH * Math.min(v, niceMax)) / niceMax;
-
-  const planPath = points
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.planCum).toFixed(1)}`)
-    .join(" ");
-  const actualPts = points
-    .map((p, i) => ({ ...p, i }))
-    .filter((p) => p.actualCum !== null);
-  const actualPath = actualPts
-    .map((p, k) => `${k === 0 ? "M" : "L"} ${xAt(p.i).toFixed(1)} ${yAt(p.actualCum).toFixed(1)}`)
-    .join(" ");
-
-  // Area gap — cuma sepanjang rentang yang Actual-nya beneran ada (biar
-  // gak nge-shade area di masa depan yang belum kejalanin)
-  let gapPath = "";
-  if (lastActualIdx >= 0) {
-    const top = [];
-    const bottom = [];
-    for (let i = 0; i <= lastActualIdx; i++) {
-      top.push(`${xAt(i).toFixed(1)},${yAt(points[i].planCum).toFixed(1)}`);
-    }
-    for (let i = lastActualIdx; i >= 0; i--) {
-      bottom.push(`${xAt(i).toFixed(1)},${yAt(points[i].actualCum).toFixed(1)}`);
-    }
-    gapPath = `M ${top.join(" L ")} L ${bottom.join(" L ")} Z`;
-  }
-
-  // ── Marker "SEKARANG" — live doang, posisinya proporsional dari jam
-  //    dinding WIB beneran (bukan sekadar nempel di titik data terakhir) ──
-  let nowX = null;
-  let nowLabel = null;
-  if (!historical) {
-    const now = getNowWIB();
-    const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-    const slotStartHours = hourly.map((h) => {
-      const m = /^(\d{1,2})-/.exec(String(h.slot));
-      return m ? Number(m[1]) : null;
-    });
-    for (let i = 0; i < slotStartHours.length; i++) {
-      const startH = slotStartHours[i];
-      if (startH === null) continue;
-      const nextH = i + 1 < slotStartHours.length ? slotStartHours[i + 1] : null;
-      const startMin = startH * 60;
-      const endMin = (nextH !== null && nextH > startH ? nextH : startH + 1) * 60;
-      if (nowMinutes >= startMin && nowMinutes < endMin) {
-        const frac = (nowMinutes - startMin) / (endMin - startMin);
-        const xNext = xAt(Math.min(i + 1, points.length - 1));
-        nowX = xAt(i) + (xNext - xAt(i)) * frac;
-        const pad = (n) => String(n).padStart(2, "0");
-        nowLabel = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
-        break;
-      }
-    }
-  }
-
-  return (
-    <div
-      style={{
-        flex: 1,
-        minHeight: 0,
-        display: "flex",
-        flexDirection: "column",
-        padding: "6px 16px 8px",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-          marginBottom: 3,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 8,
-            color: C.textMut,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-          }}
-        >
-          Trend Output Kumulatif vs Plan
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <LegendItem color={C.blue} dashed label="Plan Kumulatif" />
-          <LegendItem color={C.green} label="Actual Kumulatif" />
-          <LegendItem color={C.red} swatch label="Gap" />
-        </div>
-      </div>
-
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        style={{ flex: 1, minHeight: 0, width: "100%" }}
-      >
-        {/* Gridline + label sumbu Y */}
-        {Array.from({ length: Y_TICKS + 1 }).map((_, i) => {
-          const v = (niceMax / Y_TICKS) * i;
-          const y = yAt(v);
-          return (
-            <g key={i}>
-              <line x1={padL} x2={W - padR} y1={y} y2={y} stroke={C.border} strokeWidth={1} />
-              <text x={padL - 6} y={y + 3} fontSize={8} fill={C.textDim} textAnchor="end">
-                {fmt(Math.round(v))}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Gridline + label sumbu X */}
-        {points.map((p, i) => (
-          <g key={p.slot}>
-            <line
-              x1={xAt(i)}
-              x2={xAt(i)}
-              y1={padT}
-              y2={H - padB}
-              stroke={C.border}
-              strokeWidth={1}
-              opacity={0.4}
-            />
-            <text x={xAt(i)} y={H - padB + 13} fontSize={8} fill={C.textDim} textAnchor="middle">
-              {p.slot}
-            </text>
-          </g>
-        ))}
-
-        {/* Area gap Plan vs Actual */}
-        {gapPath && <path d={gapPath} fill={C.red} opacity={0.15} />}
-
-        {/* Garis Plan Kumulatif (proyeksi penuh) */}
-        <path d={planPath} fill="none" stroke={C.blue} strokeWidth={2} strokeDasharray="6 4" />
-        {points.map((p, i) => (
-          <circle key={i} cx={xAt(i)} cy={yAt(p.planCum)} r={2.5} fill={C.blue} />
-        ))}
-
-        {/* Garis Actual Kumulatif — berhenti di jam terakhir yang ada
-            datanya, TIDAK diproyeksikan ke jam yang belum kejalanin */}
-        {actualPath && (
-          <path d={actualPath} fill="none" stroke={C.green} strokeWidth={3} />
-        )}
-        {actualPts.map((p) => (
-          <circle
-            key={p.i}
-            cx={xAt(p.i)}
-            cy={yAt(p.actualCum)}
-            r={p.i === lastActualIdx ? 6 : 3}
-            fill={C.green}
-            stroke={p.i === lastActualIdx ? "#fff" : "none"}
-            strokeWidth={p.i === lastActualIdx ? 2 : 0}
-          />
-        ))}
-
-        {/* Marker SEKARANG — live doang */}
-        {nowX !== null && (
-          <g>
-            <line
-              x1={nowX}
-              x2={nowX}
-              y1={padT}
-              y2={H - padB}
-              stroke={C.textDim}
-              strokeWidth={1}
-              strokeDasharray="2 3"
-            />
-            <text x={nowX + 5} y={padT + 9} fontSize={8} fontWeight={700} fill={C.textDim}>
-              SEKARANG
-            </text>
-            <text x={nowX + 5} y={padT + 20} fontSize={9} fill={C.textDim}>
-              {nowLabel}
-            </text>
-          </g>
-        )}
-
-        {/* Annotasi titik terakhir — total actual + gap saat ini */}
-        {lastPoint && (
-          <g>
-            <text
-              x={xAt(lastActualIdx)}
-              y={Math.max(12, yAt(lastPoint.actualCum) - 12)}
-              fontSize={12}
-              fontWeight={800}
-              fill={C.green}
-              textAnchor="middle"
-            >
-              {fmt(lastPoint.actualCum)} pcs
-            </text>
-            {gapAtLast !== null && gapAtLast < 0 && (
-              <text
-                x={xAt(lastActualIdx)}
-                y={Math.max(24, yAt(lastPoint.planCum) - 6)}
-                fontSize={9}
-                fontWeight={700}
-                fill={C.red}
-                textAnchor="middle"
-              >
-                Gap: {fmt(gapAtLast)} pcs
-              </text>
-            )}
-          </g>
-        )}
-      </svg>
     </div>
   );
 }
@@ -567,23 +233,23 @@ function HourlyTable({ hourly }) {
 }
 
 // ─── Card availability ringkas (Bekidoritsu/OEE) ──────────
-// Revisi v2: dulu dua card ini DITUMPUK full-width, masing-masing punya
-// label row + bar 10px + padding 10px — total makan ~130px tinggi layar
-// cuma buat nampilin DUA ANGKA PERSEN. Sekarang berdampingan (2 kolom)
-// dan compact: label + angka satu baris, bar tipis 6px di bawahnya.
-// Hemat ~80px yang dialihin ke tabel per jam di bawah.
-function AvailabilityCard({ label, pct, color, live, borderRight }) {
+// v2: sempet dibikin berdampingan (2 kolom) buat hemat tinggi layar pas
+// section di bawahnya (chart trend) butuh ruang. v3: chart-nya udah
+// dihapus, jadi ditumpuk lagi full-width (lihat pemanggilannya di bawah)
+// biar ruang vertikal yang nganggur kepakai, bar & padding dilebarin
+// dikit biar sebanding sama lebar penuh.
+function AvailabilityCard({ label, pct, color, live, borderBottom }) {
   const clamped = Math.min(Math.max(pct ?? 0, 0), 100);
   return (
     <div
       style={{
-        padding: "8px 14px",
+        padding: "10px 16px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
-        gap: 5,
+        gap: 6,
         borderLeft: `3px solid ${color}`,
-        borderRight: borderRight ? `1px solid ${C.border}` : "none",
+        borderBottom: borderBottom ? `1px solid ${C.border}` : "none",
         background: `radial-gradient(ellipse at 0% 50%, ${color}14, transparent 75%)`,
       }}
     >
@@ -628,7 +294,7 @@ function AvailabilityCard({ label, pct, color, live, borderRight }) {
       <div
         style={{
           position: "relative",
-          height: 6,
+          height: 7,
           background: "#061c2e",
           borderRadius: 2,
           overflow: "hidden",
@@ -666,7 +332,7 @@ export default function CenterColumn({
   monthly,
   hourly,
   shift,
-  historical,
+  compact,
 }) {
   // `hourly` dari backend udah difilter & diurutin sesuai shift aktif —
   // gak perlu difilter ulang di FE (lihat catatan di atas file).
@@ -683,9 +349,12 @@ export default function CenterColumn({
       style={{
         display: "flex",
         flexDirection: "column",
-        overflow: "hidden",
+        // Full (TV): overflow hidden, tinggi ikut grid row yang di-stretch
+        // parent (lihat PCBDashboard.jsx). Compact (iPad): grid row-nya
+        // "auto", overflow visible — halaman yang scroll (root
+        // PCBDashboard) kalau konten kestacked lebih tinggi dari layar.
+        overflow: compact ? "visible" : "hidden",
         background: C.panelAlt,
-        minHeight: 0,
       }}
     >
       {/* ── 4 metrik utama (Output Plan/Produksi/Deviasi/PPM) ── */}
@@ -766,11 +435,15 @@ export default function CenterColumn({
         />
       </div>
 
-      {/* ── Bekidoritsu + OEE (2 card berdampingan) ── */}
+      {/* ── Bekidoritsu + OEE (ditumpuk atas-bawah) ──
+          Dulu di-samping-in buat hemat tinggi (lihat komentar
+          AvailabilityCard) karena ruang di bawah dipakai chart trend.
+          Sekarang chart-nya udah dihapus dan section bawah jadi kosong,
+          jadi ditumpuk lagi biar makan ruang vertikal yang nganggur. */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          display: "flex",
+          flexDirection: "column",
           borderBottom: `1px solid ${C.borderBr}`,
           flexShrink: 0,
           background: `linear-gradient(180deg, ${C.border}, ${C.panelAlt})`,
@@ -781,7 +454,7 @@ export default function CenterColumn({
           pct={availability.operator}
           color={C.blue}
           live={availability.operator !== null}
-          borderRight
+          borderBottom
         />
         <AvailabilityCard
           label="OEE"
@@ -1121,11 +794,9 @@ export default function CenterColumn({
       {/* ── Tabel rekapitulasi per jam ── */}
       <div
         style={{
-          flex: 1,
-          minHeight: 0,
+          flexShrink: 0,
           display: "flex",
           flexDirection: "column",
-          overflow: "hidden",
         }}
       >
         {/* Judul tengah */}
@@ -1156,24 +827,13 @@ export default function CenterColumn({
 
         <div
           style={{
-            flex: 1,
-            minHeight: 0,
             display: "flex",
             flexDirection: "column",
-            overflow: "hidden",
           }}
         >
           <div style={{ flexShrink: 0, overflow: "auto" }}>
             <HourlyTable hourly={filteredHourly} />
           </div>
-          <div
-            style={{
-              flexShrink: 0,
-              height: 1,
-              background: C.border,
-            }}
-          />
-          <CumulativeTrendChart hourly={filteredHourly} historical={historical} />
         </div>
       </div>
     </div>

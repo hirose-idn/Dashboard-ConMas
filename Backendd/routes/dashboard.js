@@ -730,6 +730,7 @@ router.get("/summary-all", async (req, res) => {
             ${COLS.stoptime_material} AS stoptime_material,
             ${COLS.stoptime_method}   AS stoptime_method,
             ${COLS.oee}               AS oee,
+            rep_top_id                AS rep_top_id,
             ${hourlySelects.join(",\n            ")}
           FROM ${getViewForTempat(line.tempat)}
           WHERE ${COLS.line} = $1
@@ -1466,7 +1467,12 @@ router.get("/summary-all-daily", async (req, res) => {
             SUM(${numeric(COLS.stoptime_material)}) AS stoptime_material,
             SUM(${numeric(COLS.stoptime_method)})   AS stoptime_method,
             AVG(${numeric(COLS.oee)})               AS oee,
-            COUNT(*) AS records
+            COUNT(*) AS records,
+            -- rep_top_id NAIK terus tiap insert (lihat seedTestData.js),
+            -- jadi MAX(rep_top_id) = dokumen/report TERAKHIR line ini di
+            -- tanggal ini (shift terbaru). Dipakai frontend buat link
+            -- "Buka PCB" (ConMasManager InputReport/Details?repTopId=).
+            MAX(rep_top_id) AS rep_top_id
           FROM ${getViewForTempat(line.tempat)}
           WHERE ${COLS.line} = $1
             AND DATE(${COLS.tanggal}) = $2
@@ -1506,6 +1512,7 @@ router.get("/summary-all-daily", async (req, res) => {
           line_not_running:
             !hasDataToday && (dateParam === todayStr ? lineNotRunning : true),
           has_data: hasDataToday,
+          rep_top_id: row?.rep_top_id != null ? Number(row.rep_top_id) : null,
           output_plan,
           output_actual,
           qty_reject: Number(row?.qty_reject) || 0,

@@ -182,7 +182,7 @@ export function LineRow({ l, onSelect, remoteSourceKey }) {
   return (
     <tr
       onClick={
-        clickable ? () => onSelect(l.line_code, remoteSourceKey) : undefined
+        clickable ? (e) => onSelect(l.line_code, remoteSourceKey, e) : undefined
       }
       style={{
         cursor: clickable ? "pointer" : "default",
@@ -253,9 +253,136 @@ export const thStyle = () => ({
   whiteSpace: "nowrap",
 });
 
+// ─── Icon kecil (SVG, currentColor) buat popup pilihan "Buka PCB" vs
+// "Dashboard per Line" — ganti emoji supaya lebih konsisten/rapi. ───────
+function DocIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0 }}
+    >
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
+// ─── Popup pas klik line (row Ranking Line ATAU row tabel Top 3) — pilih
+// buka PCB (dokumen ConMasManager, server internal, minta login sendiri)
+// atau Dashboard per Line (behavior lama, masuk ke PCBDashboard.jsx app
+// ini). Gaya SAMA PERSIS kayak RowMenu di MasterHub.jsx (popup nempel di
+// posisi klik, bukan modal di tengah layar) biar konsisten se-app. ──────
+export function LineActionMenu({ menu, onOpenPCB, onOpenDashboard, onClose }) {
+  if (!menu) return null;
+
+  const MENU_W = 230;
+  const left = Math.min(menu.x, window.innerWidth - MENU_W - 12);
+  const top = Math.min(menu.y, window.innerHeight - 180);
+
+  const itemStyle = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    textAlign: "left",
+    background: "transparent",
+    border: "none",
+    color: C.text,
+    fontSize: 13,
+    fontWeight: 600,
+    padding: "10px 14px",
+    cursor: "pointer",
+  };
+  const disabledItemStyle = { ...itemStyle, color: C.textMut, cursor: "not-allowed" };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+      <div
+        style={{
+          position: "fixed",
+          top,
+          left,
+          width: MENU_W,
+          zIndex: 50,
+          background: C.panel,
+          border: `1px solid ${C.border}`,
+          borderRadius: 10,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: "9px 14px",
+            fontSize: 11,
+            fontWeight: 700,
+            color: C.textDim,
+            letterSpacing: 0.4,
+            borderBottom: `1px solid ${C.border}`,
+          }}
+        >
+          LINE {menu.code}
+        </div>
+        <button
+          style={menu.repTopId ? itemStyle : disabledItemStyle}
+          disabled={!menu.repTopId}
+          title={
+            !menu.repTopId
+              ? "Belum ada dokumen report untuk line/tanggal ini"
+              : undefined
+          }
+          onClick={() => menu.repTopId && onOpenPCB(menu)}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <DocIcon />
+          {menu.repTopId ? "Buka PCB" : "Buka PCB (belum tersedia)"}
+        </button>
+        <button
+          style={{ ...itemStyle, borderTop: `1px solid ${C.border}` }}
+          onClick={() => onOpenDashboard(menu)}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <ChartIcon />
+          Dashboard per Line
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ─── Ranking mini-table generik — dipakai buat 3 tabel "Top" ────
 // (Top Output Terendah, Top Reject Terbanyak, Top Stoptime Terbanyak)
-export function RankingTable({ rows, columns, emptyMessage, emptyColor }) {
+export function RankingTable({ rows, columns, emptyMessage, emptyColor, onRowClick }) {
   if (rows.length === 0) {
     return (
       <p
@@ -289,7 +416,22 @@ export function RankingTable({ rows, columns, emptyMessage, emptyColor }) {
         {rows.map((l) => (
           <tr
             key={l.line_code}
-            style={{ borderTop: `1px solid ${C.border}40` }}
+            onClick={onRowClick ? (e) => onRowClick(l, e) : undefined}
+            style={{
+              borderTop: `1px solid ${C.border}40`,
+              cursor: onRowClick ? "pointer" : "default",
+              transition: "background .15s",
+            }}
+            onMouseEnter={
+              onRowClick
+                ? (e) => (e.currentTarget.style.background = C.blueDim)
+                : undefined
+            }
+            onMouseLeave={
+              onRowClick
+                ? (e) => (e.currentTarget.style.background = "transparent")
+                : undefined
+            }
           >
             {columns.map((col) => (
               <td
@@ -312,7 +454,7 @@ export function RankingTable({ rows, columns, emptyMessage, emptyColor }) {
 
 // ─── Top Output Terendah — Bekidoritsu (Actual/Plan × 100) terendah,
 // BUKAN diranking dari qty, murni persentase pencapaian ────────────
-export function TopLowAchievement({ allLines }) {
+export function TopLowAchievement({ allLines, onRowClick }) {
   const achievement = (l) =>
     l.output_plan > 0 ? (l.output_actual / l.output_plan) * 100 : null;
 
@@ -325,6 +467,7 @@ export function TopLowAchievement({ allLines }) {
   return (
     <RankingTable
       rows={rows}
+      onRowClick={onRowClick}
       emptyMessage="Belum ada line dengan data pencapaian"
       columns={[
         {
@@ -354,7 +497,7 @@ export function TopLowAchievement({ allLines }) {
 }
 
 // ─── Top Reject Tertinggi — qty_reject terbesar ─────────────────
-export function TopReject({ allLines }) {
+export function TopReject({ allLines, onRowClick }) {
   const rows = [...allLines]
     .filter((l) => l.has_data && l.qty_reject > 0)
     .sort((a, b) => b.qty_reject - a.qty_reject)
@@ -363,6 +506,7 @@ export function TopReject({ allLines }) {
   return (
     <RankingTable
       rows={rows}
+      onRowClick={onRowClick}
       emptyMessage="Belum ada reject tercatat ✓"
       emptyColor={C.green}
       columns={[
@@ -401,7 +545,7 @@ export function TopReject({ allLines }) {
 // DALAM function `cellStyle`, yang baru jalan pas tabel di-render — jadi
 // selalu ambil warna tema yang lagi aktif (dark cerah / light lebih gelap
 // & kontras).
-export function TopStoptime({ allLines }) {
+export function TopStoptime({ allLines, onRowClick }) {
   const rows = [...allLines]
     .filter((l) => l.has_data && l.stoptime_total > 0)
     .sort((a, b) => b.stoptime_total - a.stoptime_total)
@@ -410,6 +554,7 @@ export function TopStoptime({ allLines }) {
   return (
     <RankingTable
       rows={rows}
+      onRowClick={onRowClick}
       emptyMessage="Belum ada stoptime tercatat ✓"
       emptyColor={C.green}
       columns={[

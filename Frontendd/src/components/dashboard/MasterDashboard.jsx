@@ -7,6 +7,7 @@ import {
   useThemeMode,
   IS_INTERNAL_INSTANCE,
   TEMPAT_LABEL,
+  getConmasManagerUrl,
 } from "../../config/constants";
 import {
   fmt,
@@ -19,6 +20,7 @@ import {
   TopReject,
   TopStoptime,
   DailyTrendChart,
+  LineActionMenu,
 } from "./MasterDashboardWidgets";
 
 //  MASTER DASHBOARD
@@ -67,6 +69,30 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
   const [rankingDate, setRankingDate] = useState(todayWibStr);
   const [rankingLines, setRankingLines] = useState([]);
   const [rankingLoading, setRankingLoading] = useState(false);
+  // Popup "Buka PCB" vs "Dashboard per Line" pas klik row line di tabel
+  // Ranking Line di bawah. null = gak lagi ada popup kebuka.
+  const [lineChoice, setLineChoice] = useState(null);
+
+  // Handler yang sama dipakai buat 3 tabel "Top" (Top Output Terendah/
+  // Top Reject/Top Stoptime) — baris di situ juga ambil dari rankingLines
+  // (sumber sama persis kayak tabel Ranking Line utama), jadi remoteKey/
+  // backdate-nya ngikut logic yang sama.
+  const handleTopRowClick = useCallback(
+    (l, e) => {
+      const remoteKey = isRemoteViaMaster ? remoteSourceKey : undefined;
+      setLineChoice({
+        code: l.line_code,
+        remoteKey,
+        backdate:
+          !remoteKey && rankingDate !== todayWibStr ? rankingDate : undefined,
+        repTopId: l.rep_top_id ?? null,
+        tempat: l.tempat,
+        x: e.clientX,
+        y: e.clientY,
+      });
+    },
+    [isRemoteViaMaster, remoteSourceKey, rankingDate, todayWibStr],
+  );
 
   const fetchRanking = useCallback(
     async (date) => {
@@ -882,7 +908,7 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
                     Top Output Terendah
                   </p>
                 </div>
-                <TopLowAchievement allLines={rankingLines} />
+                <TopLowAchievement allLines={rankingLines} onRowClick={handleTopRowClick} />
               </div>
               <div
                 style={{
@@ -904,7 +930,7 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
                     Top Reject Tertinggi
                   </p>
                 </div>
-                <TopReject allLines={rankingLines} />
+                <TopReject allLines={rankingLines} onRowClick={handleTopRowClick} />
               </div>
               <div
                 style={{
@@ -926,7 +952,7 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
                     Top Stoptime Tertinggi
                   </p>
                 </div>
-                <TopStoptime allLines={rankingLines} />
+                <TopStoptime allLines={rankingLines} onRowClick={handleTopRowClick} />
               </div>
             </div>
 
@@ -1257,14 +1283,22 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
                           // support ini — proxy Master masih versi ringkas
                           // (lihat useDashboardData.js), jadi date di-skip
                           // di kasus itu biar gak salah nampilin data.
-                          onSelect={(code, remoteKey) =>
-                            onSelect(
+                          onSelect={(code, remoteKey, e) =>
+                            setLineChoice({
                               code,
                               remoteKey,
-                              !remoteKey && rankingDate !== todayWibStr
-                                ? rankingDate
-                                : undefined,
-                            )
+                              backdate:
+                                !remoteKey && rankingDate !== todayWibStr
+                                  ? rankingDate
+                                  : undefined,
+                              repTopId: l.rep_top_id ?? null,
+                              // tempat asli line ini (Internal/SGP/Systech)
+                              // — DB shared, tapi server ConMasManager-nya
+                              // beda host per tempat (lihat constants.js).
+                              tempat: l.tempat,
+                              x: e.clientX,
+                              y: e.clientY,
+                            })
                           }
                           remoteSourceKey={
                             isRemoteViaMaster ? remoteSourceKey : undefined
@@ -1279,6 +1313,27 @@ export default function MasterDashboard({ onSelect, onBack, onBreakdown, tempat 
           </>
         )}
       </div>
+
+      {/* Popup pilihan pas klik line: "Buka PCB" (dokumen ConMasManager,
+          server internal, minta login sendiri di sana) vs "Dashboard per
+          Line" (behavior lama, masuk ke PCBDashboard.jsx internal app ini).
+          Style-nya SAMA kayak popup pilihan di MasterHub. */}
+      <LineActionMenu
+        menu={lineChoice}
+        onClose={() => setLineChoice(null)}
+        onOpenPCB={(menu) => {
+          window.open(
+            `${getConmasManagerUrl(menu.tempat)}/InputReport/Details?repTopId=${menu.repTopId}`,
+            "_blank",
+            "noopener,noreferrer",
+          );
+          setLineChoice(null);
+        }}
+        onOpenDashboard={(menu) => {
+          onSelect(menu.code, menu.remoteKey, menu.backdate);
+          setLineChoice(null);
+        }}
+      />
     </>
   );
 }

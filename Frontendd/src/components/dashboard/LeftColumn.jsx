@@ -85,6 +85,12 @@ function parseNamaField(raw) {
 // blok KPI. Sekarang: foto 56px, nama UPPERCASE 13px, NIK telanjang 9px.
 // Emoji judul (👤/🔧/🔍) dihapus, identitas seksi pindah ke border kiri
 // cyan bawaan SectionTitle.
+// Revisi v3: foto dibesarin lagi (56 → 88) + padding ditambah. Alasannya
+// bukan estetika doang — kolom kiri ini section-nya udah fixed/berurutan
+// (3 card personel numpuk ke bawah), dan begitu konten lain di dashboard
+// jadi lebih pendek (chart trend section dihapus), sisa ruang kosong di
+// bawah card terakhir jadi kelihatan banget. Foto lebih besar = 3 card
+// ini beneran ngisi tinggi kolom, bukan nyisa gap kosong di bawahnya.
 function PersonelCard({ title, data, live }) {
   // Nama & NIK sudah di-parse di hook — tinggal pakai langsung
   // Fallback: kalau nama masih mengandung koma (mock/belum di-parse), parse di sini
@@ -103,18 +109,18 @@ function PersonelCard({ title, data, live }) {
       </SectionTitle>
       <div
         style={{
-          padding: "8px 12px 9px",
+          padding: "14px 12px 16px",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: 5,
+          gap: 8,
         }}
       >
         <Avatar
           foto={data?.foto}
           fotoFallback={data?.fotoFallback}
           nama={nama}
-          size={56}
+          size={88}
         />
         <div
           style={{

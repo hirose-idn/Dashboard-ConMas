@@ -131,6 +131,11 @@ export default function App() {
         line={urlState.line}
         remoteSource={urlState.source}
         date={urlState.date}
+        // Balik ke halaman sebelumnya (Master Dashboard/Ranking Line/Master
+        // Hub/dsb, apapun yang barusan mem-pushState sebelum ke sini via
+        // selectLine()) — bukan navigasi ke tujuan tetap, karena PCBDashboard
+        // bisa dibuka dari banyak tempat berbeda.
+        onBack={() => window.history.back()}
       />
     );
   }

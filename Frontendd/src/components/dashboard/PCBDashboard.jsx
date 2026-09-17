@@ -6,7 +6,7 @@ import LeftColumn from "./LeftColumn";
 import CenterColumn from "./CenterColumn";
 import RightColumn from "./RightColumn";
 
-export default function PCBDashboard({ line, remoteSource, date }) {
+export default function PCBDashboard({ line, remoteSource, date, onBack }) {
   // remoteSource ("sgp" | "systech") diisi cuma kalau halaman ini dibuka
   // dari Master Hub pas klik line subcont (lihat MasterDashboard.jsx
   // LineRow + App.jsx selectLine) — bikin hook fetch lewat proxy Master,
@@ -75,6 +75,7 @@ export default function PCBDashboard({ line, remoteSource, date }) {
         }}
       >
         <DashboardHeader
+          onBack={onBack}
           loading={d.loading}
           error={d.error}
           line={d.line}
@@ -177,7 +178,7 @@ export default function PCBDashboard({ line, remoteSource, date }) {
         {/* Versi historis dari kondisi di atas — badge kecil pojok kanan
             atas, BUKAN full-screen alarm (ini rekap tanggal lewat, gak ada
             yang perlu "direspon sekarang" kayak live). "no_data" = beneran
-            gak ada row produksi tanggal ini (line libur/gak jalan). 
+            gak ada row produksi tanggal ini (line libur/gak jalan).
             "not_running" (historis) = row ADA tapi kedetek berhenti input
             di tengah shift hari itu — tetap info yang berguna, cuma gak
             perlu bikin panik. */}

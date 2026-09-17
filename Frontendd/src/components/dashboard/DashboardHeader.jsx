@@ -100,6 +100,7 @@ function StatusPill({ historical, lineStatus }) {
 // judul & status kanan-atas berubah biar operator/manajemen gak salah kira
 // ini data LIVE, padahal lagi liat rekap hari yang udah lewat.
 export default function DashboardHeader({
+  onBack,
   loading,
   error,
   line,
@@ -123,9 +124,36 @@ export default function DashboardHeader({
         flexShrink: 0,
         boxShadow: "0 2px 24px #00000088",
         minHeight: 52,
+        position: "relative",
       }}
     >
       <Clock />
+
+      {/* CUMA muncul kalau ada onBack (dibuka lewat popup "Dashboard per
+          Line" dari Master Dashboard/Ranking Line dst — lihat App.jsx).
+          Balik ke halaman SEBELUMNYA (window.history.back), bukan tujuan
+          tetap, karena PCBDashboard bisa dibuka dari banyak tempat. Diletak
+          nempel di atas Clock, kecil aja — layar ini kiosk/TV, jangan
+          ganggu tampilan utama. */}
+      {onBack && (
+        <button
+          onClick={onBack}
+          style={{
+            position: "absolute",
+            top: 6,
+            left: 18,
+            background: "transparent",
+            border: "none",
+            color: C.blue,
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          ← Kembali
+        </button>
+      )}
 
       <div
         style={{
