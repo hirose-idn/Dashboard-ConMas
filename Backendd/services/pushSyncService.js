@@ -33,6 +33,8 @@ const REQUEST_TIMEOUT_MS = Number(process.env.PUSH_REQUEST_TIMEOUT_MS) || 10 * 1
 // operasional real-time), jangan ditambah bebannya.
 const SEND_CONCURRENCY = Math.max(1, Number(process.env.PUSH_SEND_CONCURRENCY) || 4);
 const MAX_QUEUE_ITEMS = 500;
+// Karakter yang diterima Master buat kode line (lihat routes/sync.js).
+const LINE_CODE_RE = /^[A-Za-z0-9_-]+$/;
 // Job collect yang lebih lama dari ini dianggap "lambat" & dicatat di log
 // biar ketauan query/endpoint mana yang bikin siklus molor.
 const SLOW_JOB_MS = 5000;
@@ -226,7 +228,16 @@ async function collectPayloads() {
   // jadi makin banyak line aktif, makin banyak request/siklus — cek
   // syncLimiter di routes/sync.js (Master) masih punya headroom kalau
   // jumlah line nambah banyak.
+  const badCodes = [];
   for (const line of getAllLines()) {
+    // Master nolak type dengan karakter di luar [A-Za-z0-9_-] (400 "type
+    // tidak dikenal"). Kode line yang kecampur karakter aneh (mis. kutip
+    // melengkung ’ hasil copy-paste di lines.json) bakal GAGAL TERUS tiap
+    // siklus selamanya, jadi dilewati di sini + dicatat, bukan dikirim.
+    if (!LINE_CODE_RE.test(String(line.line_code))) {
+      badCodes.push(line.line_code);
+      continue;
+    }
     jobs.push({
       type: `dashboard-line-${line.line_code}`,
       fn: () => fetchLocalDashboard("line-summary", { line: line.line_code }),
@@ -235,6 +246,11 @@ async function collectPayloads() {
       type: `dashboard-line-monthly-${line.line_code}-${year}-${month}`,
       fn: () => fetchLocalDashboard("line-monthly", { line: line.line_code }),
     });
+  }
+
+  if (badCodes.length > 0 && plog.throttle("bad-line-code", 60 * 60 * 1000) !== null) {
+    plog.warn("BAD_LINE_CODE", { count: badCodes.length, codes: badCodes.join(","), hint: "perbaiki data/lines.json" });
+    console.warn(`PUSHSYNC ⚠️  Kode line berisi karakter tidak valid, DILEWATI: ${badCodes.join(", ")} (perbaiki data/lines.json)`);
   }
 
   const payloads = [];
