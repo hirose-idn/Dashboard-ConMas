@@ -109,6 +109,13 @@ app.use("/api/executive", executiveRoutes);
 // No-op di instance Internal/Master.
 pushSyncService.start();
 
+// Watchdog — cuma di instance Internal/Master: pantau apakah SGP/Systech
+// masih nge-push, catat ke logs/push-*.log (+ Telegram kalau diisi).
+// No-op kalau SYNC_DB_* belum dikonfigurasi. Lihat services/pushWatchdog.js.
+if (process.env.SOURCE_NAME === "internal") {
+  require("./services/pushWatchdog").start();
+}
+
 // ── Health check ────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({ status: "OK", uptime: process.uptime() });

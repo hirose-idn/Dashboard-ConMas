@@ -82,3 +82,36 @@ lokasi itu berhenti kirim — cek log PM2 di server SGP/Systech-nya.
 
 Gak perlu ubah skema DB (`subcont_push_latest`/`subcont_push_log` generic
 per `source`, bukan per-vendor hardcoded).
+
+## Log harian & monitoring
+
+Tiap instance nulis file teks `logs/push-YYYY-MM-DD.log` (jam WIB, bisa
+dibuka Notepad). Satu baris = satu kejadian, format `key=value`:
+
+- **Pengirim (SGP/Systech):** `START`, `CYCLE` (1 baris per siklus:
+  durasi, `sent_ok`/`send_fail`, `errs=http530:85`, `queue`, `slow=` job
+  yang lambat), `SEND_FAIL`/`COLLECT_FAIL` (maks 3 per siklus),
+  `OUTAGE_START`/`OUTAGE_END` (+ lama down), `CYCLE_SKIP`.
+- **Master:** `GAP` (per type, pas push nyambung lagi), `PUSH_STALE_IGNORED`,
+  `PUSH_REJECTED`, `PUSH_SAVE_FAIL`, `SENDER_STALE`/`SENDER_RECOVERED`
+  (watchdog, lihat `services/pushWatchdog.js`).
+
+Ringkasan cepat:
+
+```
+node scripts/summarizeLog.js              # hari ini
+node scripts/summarizeLog.js 2026-10-13   # tanggal tertentu
+node scripts/summarizeLog.js --last 7     # 7 hari terakhir
+```
+
+Cara baca `errs=`: `http530`/`ENOTFOUND` = tunnel mati atau `PUSH_MASTER_URL`
+salah/berubah (quick tunnel ganti URL tiap restart); `http403` = key salah;
+`http429` = kena rate limit Master; `ECONNABORTED` = timeout; `http500` =
+Master gagal simpan (cek sync DB). File lama otomatis dihapus setelah
+`PUSH_LOG_RETAIN_DAYS` (default 30).
+
+Guard data basi: Master menolak push yang `payload_timestamp`-nya lebih tua
+dari yang tersimpan (status `stale` di `subcont_push_log`, tanpa payload).
+Tabel `subcont_push_log` menyimpan payload penuh tiap push dan belum punya
+retensi otomatis — bersihkan berkala, mis.
+`DELETE FROM subcont_push_log WHERE received_at < NOW() - INTERVAL '7 days';`

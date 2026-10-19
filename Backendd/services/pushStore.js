@@ -10,6 +10,7 @@
 // persis kayak sebelum fitur ini ada.
 
 const { pool, configured } = require("../db-sync");
+const plog = require("../utils/dailyLogger");
 
 // Threshold buat nge-log WARNING kalau jarak antar push sukses (source+type
 // sama) ngelewatin ambang ini — persis threshold yang bikin status di
@@ -17,6 +18,20 @@ const { pool, configured } = require("../db-sync");
 // PUSH_FALLBACK_MAX_AGE_MS di sourceClient.js (1 sumber kebenaran).
 // Cek riwayat: `pm2 logs <master> | grep "Gap push"`.
 const GAP_WARN_MS = Number(process.env.PUSH_FALLBACK_MAX_AGE_MS) || 5 * 60 * 1000;
+
+// Warning gap di console cukup SEKALI per source per menit — pas pengirim
+// nyambung lagi abis outage, semua type (~85/source) kena gap barengan dan
+// bikin pm2 logs banjir. Detail LENGKAP per-type tetap masuk logs/push-*.log.
+function warnGapConsole(source, type, gapMs) {
+  const suppressed = plog.throttle(`gap-console:${source}`, 60 * 1000);
+  if (suppressed === null) return;
+  console.warn(
+    `⚠️  Gap push terdeteksi: ${source}/${type} — ${plog.fmtDuration(gapMs)} (${gapMs}ms, ambang: ${GAP_WARN_MS}ms). ` +
+      `Status dashboard buat type ini sempat/bakal kelihatan "Belum Dikonfigurasi" di jendela ini. ` +
+      `${suppressed > 0 ? `(+${suppressed} type lain di-skip dari console) ` : ""}` +
+      `Detail lengkap: ${plog.LOG_DIR}`,
+  );
+}
 
 async function savePush(source, type, payloadTimestamp, data) {
   if (!configured) return { ok: false, reason: "SYNC_DB belum dikonfigurasi" };
@@ -57,31 +72,55 @@ async function savePush(source, type, payloadTimestamp, data) {
       [source, type],
     );
 
-    await client.query(
+    // GUARD payload_timestamp: snapshot yang LEBIH TUA dari yang tersimpan
+    // gak boleh menimpa (mis. item antrian retry dari pengirim yang baru
+    // pulih dari outage) — kalau boleh, data basi bakal kelihatan "fresh"
+    // karena received_at selalu di-set NOW(), padahal isinya lama.
+    // Pengecualian: kalau yang tersimpan timestamp-nya di MASA DEPAN (>5
+    // menit, mis. jam server pengirim sempat ngaco), boleh ditimpa — kalau
+    // nggak, semua push normal berikutnya ketolak sampai jamnya "nyusul".
+    const upsert = await client.query(
       `INSERT INTO subcont_push_latest (source, type, payload_timestamp, received_at, data)
        VALUES ($1, $2, $3, NOW(), $4)
        ON CONFLICT (source, type)
        DO UPDATE SET payload_timestamp = EXCLUDED.payload_timestamp,
                       received_at = NOW(),
-                      data = EXCLUDED.data`,
+                      data = EXCLUDED.data
+       WHERE subcont_push_latest.payload_timestamp <= EXCLUDED.payload_timestamp
+          OR subcont_push_latest.payload_timestamp > NOW() + INTERVAL '5 minutes'`,
       [source, type, payloadTimestamp, jsonData],
     );
+    // rowCount 0 = konflik ketemu tapi WHERE false -> push ini basi, diabaikan.
+    const applied = upsert.rowCount > 0;
 
+    // Push basi tetap dicatat di log (audit) tapi TANPA payload data biar
+    // tabel gak bengkak; status 'stale' (kolom VARCHAR(20), gak perlu migrasi).
     await client.query(
       `INSERT INTO subcont_push_log (source, type, payload_timestamp, status, data)
-       VALUES ($1, $2, $3, 'ok', $4)`,
-      [source, type, payloadTimestamp, jsonData],
+       VALUES ($1, $2, $3, $4, $5)`,
+      [source, type, payloadTimestamp, applied ? "ok" : "stale", applied ? jsonData : null],
     );
 
     await client.query("COMMIT");
 
+    if (!applied) {
+      plog.warn("PUSH_STALE_IGNORED", { source, type, payload_ts: payloadTimestamp });
+      // Return ok biar pengirim anggap terkirim & buang dari antriannya —
+      // kalau dibalas error, dia retry terus selamanya.
+      return { ok: true, stale: true };
+    }
+
     if (prev.rows.length > 0) {
       const gapMs = Date.now() - new Date(prev.rows[0].received_at).getTime();
       if (gapMs > GAP_WARN_MS) {
-        console.warn(
-          `⚠️  Gap push terdeteksi: ${source}/${type} — ${gapMs}ms (ambang: ${GAP_WARN_MS}ms). ` +
-            `Status dashboard buat type ini sempat/bakal kelihatan "Belum Dikonfigurasi" di jendela ini.`,
-        );
+        plog.warn("GAP", {
+          source,
+          type,
+          gap: plog.fmtDuration(gapMs),
+          gap_ms: gapMs,
+          threshold_ms: GAP_WARN_MS,
+        });
+        warnGapConsole(source, type, gapMs);
       }
     }
 
@@ -104,6 +143,11 @@ async function savePush(source, type, payloadTimestamp, data) {
 }
 
 async function logRejected(source, type, reason) {
+  // Throttle: key salah/spam gak boleh banjirin file log.
+  const suppressed = plog.throttle(`reject:${source}:${reason}`, 60 * 1000);
+  if (suppressed !== null) {
+    plog.warn("PUSH_REJECTED", { source: source || "unknown", type: type || "unknown", reason, suppressed });
+  }
   if (!configured) return;
   try {
     await pool.query(

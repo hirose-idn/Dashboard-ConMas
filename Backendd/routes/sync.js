@@ -11,6 +11,7 @@ const { ipKeyGenerator } = rateLimit;
 
 const { savePush, logRejected } = require("../services/pushStore");
 const { configured: syncDbConfigured } = require("../db-sync");
+const plog = require("../utils/dailyLogger");
 
 const VALID_SOURCES = ["sgp", "systech"];
 const VALID_TYPES = [
@@ -156,6 +157,12 @@ router.post("/", requireSyncKey, async (req, res) => {
   }
   if (!result.ok) {
     console.error(`SYNC/POST ERROR (${source}/${type}):`, result.reason);
+    // Throttle: kalau sync-DB down, SEMUA push (~85/menit/source) gagal —
+    // cukup 1 baris per source+alasan per menit di file log.
+    const suppressed = plog.throttle(`save-fail:${source}:${result.reason}`, 60 * 1000);
+    if (suppressed !== null) {
+      plog.error("PUSH_SAVE_FAIL", { source, type, reason: result.reason, suppressed });
+    }
     return res.status(500).json({ status: "error", message: "Gagal simpan data push" });
   }
 

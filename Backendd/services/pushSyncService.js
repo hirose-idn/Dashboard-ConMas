@@ -20,12 +20,25 @@ const {
 } = require("./summaryService");
 const { getLineRangeBreakdown } = require("./lineBreakdownService");
 const { getAllLines } = require("../utils/linesRegistry");
+const plog = require("../utils/dailyLogger");
 
 const SOURCE_NAME = process.env.SOURCE_NAME; // 'sgp' | 'systech'
 const MASTER_URL = process.env.PUSH_MASTER_URL; // https://<domain-atau-tunnel>/api/sync
 const SYNC_KEY = process.env.PUSH_SYNC_KEY;
 const INTERVAL_MS = Number(process.env.PUSH_INTERVAL_MS) || 60 * 1000; // default 1 menit
-const REQUEST_TIMEOUT_MS = 10 * 1000;
+const REQUEST_TIMEOUT_MS = Number(process.env.PUSH_REQUEST_TIMEOUT_MS) || 10 * 1000;
+// Kirim ke Master PARALEL (bukan satu-satu) biar siklus gak kelamaan —
+// ~85 request sekuensial lewat tunnel gampang nembus 60 detik. Collect
+// data lokal SENGAJA tetap sekuensial: itu nembak DB ConMas (berlisensi,
+// operasional real-time), jangan ditambah bebannya.
+const SEND_CONCURRENCY = Math.max(1, Number(process.env.PUSH_SEND_CONCURRENCY) || 4);
+const MAX_QUEUE_ITEMS = 500;
+// Job collect yang lebih lama dari ini dianggap "lambat" & dicatat di log
+// biar ketauan query/endpoint mana yang bikin siklus molor.
+const SLOW_JOB_MS = 5000;
+// Detail error per-item dibatasi per siklus — sisanya cukup angka di baris
+// ringkasan CYCLE (kalau gak, Master down = ~85 baris error tiap menit).
+const MAX_ERR_LINES_PER_CYCLE = 3;
 
 const QUEUE_FILE = path.join(__dirname, "..", "data", "sync-push-queue.json");
 
@@ -39,15 +52,60 @@ function loadQueue() {
   }
 }
 
+// Antrian cuma perlu 1 item TERBARU per type — snapshot lama dari type yang
+// sama itu sia-sia (dan di sisi Master udah ditolak kalau lebih tua dari
+// yang tersimpan, lihat guard payload_timestamp di pushStore.js).
+function dedupeByType(queue) {
+  const latest = new Map();
+  for (const item of queue) {
+    const prev = latest.get(item.type);
+    if (!prev || new Date(item.timestamp) >= new Date(prev.timestamp)) {
+      latest.set(item.type, item);
+    }
+  }
+  return [...latest.values()];
+}
+
 function saveQueue(queue) {
   try {
-    // Batasi antrian biar file gak membengkak tanpa batas kalau Master
-    // down berhari-hari — simpan 500 item terbaru aja.
-    const trimmed = queue.slice(-500);
-    fs.writeFileSync(QUEUE_FILE, JSON.stringify(trimmed, null, 2));
+    const trimmed = dedupeByType(queue).slice(-MAX_QUEUE_ITEMS);
+    fs.mkdirSync(path.dirname(QUEUE_FILE), { recursive: true });
+    // Tulis atomik (tmp -> rename): kalau proses mati di tengah nulis,
+    // file lama tetap utuh, gak jadi JSON separuh yang di-reset diam-diam
+    // sama loadQueue().
+    const tmp = `${QUEUE_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(trimmed));
+    fs.renameSync(tmp, QUEUE_FILE);
   } catch (err) {
     console.error("PUSHSYNC/saveQueue gagal tulis file:", err.message);
+    plog.error("QUEUE_SAVE_FAIL", { msg: err.message });
   }
+}
+
+// Ringkas error axios jadi 1 kunci pendek buat dihitung/dikelompokkan:
+// "http530" (tunnel mati/URL salah), "ENOTFOUND" (DNS), "ECONNABORTED"
+// (timeout), "http403" (key salah), dst.
+function describeError(err) {
+  const status = err.response?.status;
+  return { key: status ? `http${status}` : err.code || "unknown", message: err.message };
+}
+
+function formatErrCounts(counts) {
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return entries.length ? entries.map(([k, n]) => `${k}:${n}`).join(",") : "-";
+}
+
+// Jalanin worker untuk tiap item dengan maksimal `limit` yang jalan bareng.
+// Worker WAJIB nangkep error sendiri.
+async function runPool(items, limit, worker) {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next++;
+      await worker(items[idx]);
+    }
+  });
+  await Promise.all(runners);
 }
 
 async function sendToMaster(item) {
@@ -180,7 +238,10 @@ async function collectPayloads() {
   }
 
   const payloads = [];
+  const failed = [];
+  const slow = [];
   for (const job of jobs) {
+    const t0 = Date.now();
     try {
       const data = await job.fn();
       payloads.push({ type: job.type, timestamp, data });
@@ -192,10 +253,13 @@ async function collectPayloads() {
       const detail = err.response?.data
         ? JSON.stringify(err.response.data)
         : err.message;
+      failed.push({ type: job.type, detail });
       console.error(`PUSHSYNC/collect (${job.type}) gagal:`, detail);
     }
+    const took = Date.now() - t0;
+    if (took >= SLOW_JOB_MS) slow.push({ type: job.type, ms: took });
   }
-  return payloads;
+  return { payloads, failed, slow };
 }
 
 // ── BACKFILL HISTORI ──────────────────────────────────────────────
@@ -270,43 +334,110 @@ async function collectMonthPayloads(year, month) {
 // numpuk lagi, gak pernah abis-abis). Kuras pelan-pelan tiap siklus aja.
 const MAX_RETRY_PER_CYCLE = 15;
 
+let cycleSeq = 0;
+let skippedTicks = 0; // tick yang di-skip guard isRunning sejak siklus terakhir
+let outageSince = null; // epoch ms mulai gagal total kirim ke Master (in-memory)
+
 async function syncCycle() {
-  let queue = loadQueue();
+  const startedAt = Date.now();
+  const cycleId = ++cycleSeq;
+  const skipped = skippedTicks;
+  skippedTicks = 0;
 
-  // 1) Coba kosongin antrian lama dulu (retry backlog dari siklus
-  // sebelumnya) — MAX_RETRY_PER_CYCLE item terlama duluan (FIFO), sisanya
-  // nunggu siklus berikutnya.
-  if (queue.length > 0) {
-    const toRetry = queue.slice(0, MAX_RETRY_PER_CYCLE);
-    const rest = queue.slice(MAX_RETRY_PER_CYCLE);
-    const stillFailed = [];
-    for (const item of toRetry) {
-      try {
-        await sendToMaster(item);
-      } catch (_) {
-        stillFailed.push(item);
-      }
-    }
-    const sentCount = toRetry.length - stillFailed.length;
-    if (sentCount > 0) {
-      console.log(`PUSHSYNC: ${sentCount} item backlog berhasil dikirim ulang`);
-    }
-    queue = [...stillFailed, ...rest];
-  }
+  let queue = dedupeByType(loadQueue());
 
-  // 2) Ambil & kirim data terbaru
-  const payloads = await collectPayloads();
-  for (const item of payloads) {
+  // 1) Collect data lokal (sekuensial, lihat catatan SEND_CONCURRENCY).
+  const { payloads, failed, slow } = await collectPayloads();
+  const collectMs = Date.now() - startedAt;
+  failed.slice(0, MAX_ERR_LINES_PER_CYCLE).forEach((f) =>
+    plog.warn("COLLECT_FAIL", { cycle: cycleId, type: f.type, msg: f.detail }),
+  );
+
+  // Data baru MENGGANTIKAN backlog untuk type yang sama — gak perlu kirim
+  // snapshot basi kalau snapshot segar buat type itu udah ada. Backlog yang
+  // tersisa cuma type yang gak di-collect lagi (mis. hari/bulan kemarin).
+  const freshTypes = new Set(payloads.map((p) => p.type));
+  queue = queue.filter((q) => !freshTypes.has(q.type));
+
+  // 2) Retry backlog: MAX_RETRY_PER_CYCLE item terlama, sisanya nunggu
+  // siklus berikutnya (kuras pelan-pelan, jangan nabrak limiter Master).
+  const toRetry = queue.slice(0, MAX_RETRY_PER_CYCLE);
+  const rest = queue.slice(MAX_RETRY_PER_CYCLE);
+  const stillFailed = [];
+  let backlogSent = 0;
+  await runPool(toRetry, SEND_CONCURRENCY, async (item) => {
     try {
       await sendToMaster(item);
-      console.log(`PUSHSYNC OK: ${item.type} @ ${item.timestamp}`);
-    } catch (err) {
-      console.error(`PUSHSYNC GAGAL (${item.type}), masuk antrian:`, err.message);
-      queue.push(item);
+      backlogSent++;
+    } catch (_) {
+      stillFailed.push(item);
     }
+  });
+
+  // 3) Kirim data terbaru (paralel terbatas).
+  const sendStart = Date.now();
+  const errCounts = {};
+  const failedItems = [];
+  let sentOk = 0;
+  let errLogged = 0;
+  await runPool(payloads, SEND_CONCURRENCY, async (item) => {
+    try {
+      await sendToMaster(item);
+      sentOk++;
+    } catch (err) {
+      failedItems.push(item);
+      const { key, message } = describeError(err);
+      errCounts[key] = (errCounts[key] || 0) + 1;
+      if (errLogged < MAX_ERR_LINES_PER_CYCLE) {
+        errLogged++;
+        plog.warn("SEND_FAIL", { cycle: cycleId, type: item.type, err: key, msg: message });
+        console.error(`PUSHSYNC GAGAL (${item.type}), masuk antrian: ${key} ${message}`);
+      }
+    }
+  });
+  const sendMs = Date.now() - sendStart;
+  const sendFailed = failedItems.length;
+
+  queue = [...stillFailed, ...rest, ...failedItems];
+  saveQueue(queue);
+
+  // 4) Deteksi mulai/selesai outage (gagal TOTAL kirim ke Master).
+  const allFailed = payloads.length > 0 && sentOk === 0 && backlogSent === 0;
+  if (allFailed && outageSince === null) {
+    outageSince = startedAt;
+    plog.error("OUTAGE_START", { cycle: cycleId, errs: formatErrCounts(errCounts), master: MASTER_URL });
+  } else if (sentOk > 0 && outageSince !== null) {
+    const downMs = startedAt - outageSince;
+    plog.info("OUTAGE_END", { cycle: cycleId, down: plog.fmtDuration(downMs), down_ms: downMs });
+    outageSince = null;
   }
 
-  saveQueue(queue);
+  // 5) Ringkasan 1 baris per siklus — ini bahan utama analisa harian.
+  const totalMs = Date.now() - startedAt;
+  const hasProblem = sendFailed > 0 || failed.length > 0 || skipped > 0;
+  plog[hasProblem ? "warn" : "info"]("CYCLE", {
+    id: cycleId,
+    ms: totalMs,
+    collect_ms: collectMs,
+    send_ms: sendMs,
+    collected: payloads.length,
+    collect_fail: failed.length,
+    sent_ok: sentOk,
+    send_fail: sendFailed,
+    backlog_sent: backlogSent,
+    queue: queue.length,
+    skipped_before: skipped,
+    errs: formatErrCounts(errCounts),
+    slow: slow.length
+      ? slow
+          .sort((x, y) => y.ms - x.ms)
+          .slice(0, 3)
+          .map((j) => `${j.type}:${j.ms}`)
+          .join("|")
+      : "-",
+  });
+  const summary = `PUSHSYNC cycle #${cycleId}: ${sentOk}/${payloads.length} terkirim, ${sendFailed} gagal, antrian ${queue.length}, ${(totalMs / 1000).toFixed(1)}s`;
+  (hasProblem ? console.warn : console.log)(summary);
 }
 
 function start() {
@@ -326,34 +457,52 @@ function start() {
   console.log(
     `🔄 Push-sync service AKTIF — kirim data ke ${MASTER_URL} tiap ${INTERVAL_MS / 1000}s (source=${SOURCE_NAME})`,
   );
+  plog.info("START", {
+    source: SOURCE_NAME,
+    master: MASTER_URL,
+    interval_ms: INTERVAL_MS,
+    timeout_ms: REQUEST_TIMEOUT_MS,
+    concurrency: SEND_CONCURRENCY,
+    lines: getAllLines().length,
+  });
 
   // Guard anti-tabrakan: tanpa ini, kalau 1 siklus lebih lambat dari
   // INTERVAL_MS (DB berat/network lag), siklus baru numpuk DI ATAS yang
   // lama — makin banyak siklus jalan bareng → makin lambat → makin
   // numpuk lagi (spiral, gak balik normal sampai proses di-restart).
   // Dengan guard ini, siklus baru cuma di-skip (log doang) kalau yang
-  // lama masih jalan.
+  // lama masih jalan. Siklus PERTAMA juga lewat guard + try/catch yang
+  // sama (sebelumnya dipanggil telanjang: error-nya jadi unhandled
+  // rejection dan gak ikut ke-guard).
   let isRunning = false;
+  let runningSince = 0;
   let skippedCount = 0;
 
-  syncCycle(); // jalan sekali langsung pas start
-  setInterval(async () => {
+  const runCycle = async () => {
     if (isRunning) {
       skippedCount++;
+      skippedTicks++;
+      const runningFor = Date.now() - runningSince;
       console.warn(
-        `PUSHSYNC ⚠️  Siklus sebelumnya masih jalan (>${INTERVAL_MS / 1000}s) — siklus ini di-skip (total skip: ${skippedCount}). Kalau ini sering muncul, INTERVAL_MS mungkin perlu dinaikin atau jumlah job/line perlu dikurangin per-siklus.`,
+        `PUSHSYNC ⚠️  Siklus sebelumnya masih jalan (${Math.round(runningFor / 1000)}s, interval ${INTERVAL_MS / 1000}s) — siklus ini di-skip (total skip: ${skippedCount}). Kalau ini sering muncul, INTERVAL_MS mungkin perlu dinaikin atau jumlah job/line perlu dikurangin per-siklus.`,
       );
+      plog.warn("CYCLE_SKIP", { running_for_ms: runningFor, total_skipped: skippedCount });
       return;
     }
     isRunning = true;
+    runningSince = Date.now();
     try {
       await syncCycle();
     } catch (err) {
       console.error("PUSHSYNC syncCycle error gak ketangkep:", err.message);
+      plog.error("CYCLE_CRASH", { msg: err.message });
     } finally {
       isRunning = false;
     }
-  }, INTERVAL_MS);
+  };
+
+  runCycle(); // jalan sekali langsung pas start
+  setInterval(runCycle, INTERVAL_MS);
 }
 
 module.exports = {
