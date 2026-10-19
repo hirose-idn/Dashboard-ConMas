@@ -30,15 +30,15 @@ if (configured) {
 
   pool.connect((err, client, release) => {
     if (err) {
-      console.error("❌ Gagal konek ke SYNC DB (push-sync):", err.message);
+      console.error("Gagal konek ke SYNC DB (push-sync):", err.message);
     } else {
-      console.log("✅ Berhasil konek ke SYNC DB (push-sync, DB terpisah dari ConMas)");
+      console.log("Berhasil konek ke SYNC DB (push-sync, DB terpisah dari ConMas)");
       release();
     }
   });
 } else {
   console.log(
-    "ℹ️  SYNC_DB_* belum diisi di .env — fitur push-sync nonaktif (instance tetap jalan normal).",
+    "SYNC_DB_* belum diisi di .env — fitur push-sync nonaktif (instance tetap jalan normal).",
   );
 }
 
