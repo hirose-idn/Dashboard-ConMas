@@ -4,3 +4,4 @@ node_modules/
 uploads/foto/
 data/
 logs/
+config/reportColumns.js
