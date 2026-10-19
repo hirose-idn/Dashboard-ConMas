@@ -5,3 +5,4 @@ node_modules/
 .env.production.systech
 BUILD_NOTES.md
 build/
+.env.production
